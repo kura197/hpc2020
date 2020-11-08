@@ -22,7 +22,7 @@ typedef std::pair<double, Vector2> P_dist;
 const double EPS = 1e-5;
 const double INF = 1e50;
 /// rabbit : 0, others : 1 - 20
-const int MAX_V = 21;
+const int MAX_V = 1 + Parameter::MaxScrollCount;
 
 /// ウサギ&巻物 間の速さをジャンプ力を1.0とした場合の移動時間
 double distance[25][25];
@@ -79,6 +79,64 @@ class Comp_P_dist{
 
 /// v1, v2間の移動にかかるターン数(ジャンプ力 = 1)
 double dist_opt(const Stage& aStage, Vector2 v1, Vector2 v2, int top_k, const std::vector<double>& Theta){
+    std::priority_queue<P_dist, std::vector<P_dist>, Comp_P_dist> que;
+    que.push(P_dist(dist(v1, v2), v1));
+    //const std::vector<double> Theta = {M_PI/2, M_PI/3, M_PI/6, 0, -M_PI/6, -M_PI/3, -M_PI/2};
+    int turn = 0;
+    while(1){
+        Ver pos_array;
+        bool finish = false;
+        while(!que.empty() && (int)pos_array.size() < top_k){
+            auto x = que.top(); que.pop();
+            pos_array.push_back(x.second);
+            if(x.first < EPS){
+                //printf("Found : turn = %d\n", turn);
+                finish = true;
+                break;
+            }
+        }
+
+        if(finish)
+            break;
+
+        turn++;
+        queue_clear<decltype(que)>(que);
+        for(auto v : pos_array){
+            for(auto theta : Theta){
+                // +theta, -thetaの両方を行う
+                int nloop = (theta == 0) ? 1 : 2;
+                for(int i = 0; i < nloop; i++){
+                    theta = (i == 0) ? theta : -theta;
+                    auto target = calc_point_rot(v, v2, theta);
+                    if(target.y < 0){
+                        target.x = v.x + (target.x - v.x) * (v.y / (v.y - target.y));
+                        target.y = 0;
+                    }
+                    if(target.x < 0){
+                        target.y = v.y + (target.y - v.y) * (v.x / (v.x - target.x));
+                        target.x = 0;
+                    }
+                    if(target.y >= Parameter::StageWidth){
+                        const float Y = Parameter::StageWidth - EPS;
+                        target.x = v.x + (target.x - v.x) * ((v.y - Y) / (v.y - target.y));
+                        target.y = Y;
+                    }
+                    if(target.x >= Parameter::StageHeight){
+                        const float X = Parameter::StageHeight - EPS;
+                        target.y = v.y + (target.y - v.y) * ((v.x - X) / (v.x - target.x));
+                        target.x = X;
+                    }
+                    auto nv = aStage.getNextPos(v, 1.0, target);
+                    que.push(P_dist(dist(nv, v2), nv));
+                }
+            }
+        }
+    }
+    return turn;
+}
+
+/// v1, v2間の移動にかかるターン数が最小となるパス
+double get_path_opt(const Stage& aStage, Vector2 v1, Vector2 v2, int top_k, const std::vector<double>& Theta){
     std::priority_queue<P_dist, std::vector<P_dist>, Comp_P_dist> que;
     que.push(P_dist(dist(v1, v2), v1));
     //const std::vector<double> Theta = {M_PI/2, M_PI/3, M_PI/6, 0, -M_PI/6, -M_PI/3, -M_PI/2};
@@ -256,12 +314,16 @@ Answer::~Answer()
 /// @param aStage 現在のステージ
 void Answer::initialize(const Stage& aStage)
 {
+    //if(aStage.turn() < 1)
+    //    return;
+
     // {rabbit, scroll0, scroll1, ...}
     Ver vertices;
     vertices_init(vertices, aStage);
 
     //calc_distance_greedy(vertices);
-    const std::vector<double> Theta = {M_PI/2, M_PI/3, M_PI/4, M_PI/6, 0};
+    //const std::vector<double> Theta = {M_PI/2, M_PI/3, M_PI/4, M_PI/6, 0};
+    const std::vector<double> Theta = {M_PI*sqrt(3.0/4), M_PI/6, 0};
     const int topk = 10;
     calc_distance_search_topk(aStage, vertices, topk, Theta);
 
