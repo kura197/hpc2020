@@ -9,13 +9,17 @@
 
 #include "Answer.hpp"
 #include <vector>
-
+#include <queue>
+#include <cmath>
 
 //------------------------------------------------------------------------------
 namespace hpc {
 
 typedef std::vector<Vector2> Ver;
+// {対象までの距離, 座標}
+typedef std::pair<double, Vector2> P_dist;
 
+const double EPS = 1e-5;
 const double INF = 1e50;
 /// rabbit : 0, others : 1 - 20
 const int MAX_V = 21;
@@ -26,10 +30,100 @@ double distance[25][25];
 /// 巻物の取る順番
 std::vector<int> targets;
 
+double dist(Vector2 v1, Vector2 v2);
+Vector2 calc_point_rot(Vector2 v1, Vector2 v2, double theta);
+double dist_opt(const Stage& aStage, Vector2 v1, Vector2 v2, int top_k, const std::vector<double>& Theta);
+void distance_init(const Stage& aStage);
+void warshall_floyd(Ver vertices);
+void calc_distance_greedy(Ver vertices);
+void calc_distance_search_topk(const Stage& aStage, Ver vertices, int topk, const std::vector<double>& Theta);
+void sales_man_init(int size);
+double sales_man(int S, int v, int size);
+void vertices_init(Ver& vertices, const Stage& aStage);
+void build_target_sequence();
+
+
+////////////////////////////////////////////////////////////////////////
+
+/// v1, v2間の直線距離
 double dist(Vector2 v1, Vector2 v2){
     double diff_y = v1.y - v2.y;
     double diff_x = v1.x - v2.x;
     return std::sqrt(diff_y*diff_y + diff_x*diff_x);
+}
+
+/// v1からv2へrot回転された点を算出
+Vector2 calc_point_rot(Vector2 v1, Vector2 v2, double theta){
+    Vector2 ret = {0, 0};
+    float vec_x = v2.x - v1.x;
+    float vec_y = v2.y - v1.y;
+    ret.x = v1.x + vec_x * cos(theta) - vec_y * sin(theta);
+    ret.y = v1.y + vec_x * sin(theta) + vec_y * cos(theta);
+    return ret;
+}
+
+// TODO : check efficiency
+template<typename T>
+void queue_clear(T &que)
+{
+   T empty;
+   std::swap(que, empty);
+}
+
+class Comp_P_dist{
+    public:
+    bool operator() (const P_dist& a, const P_dist& b){
+        return a.first > b.first;
+    }
+};
+
+/// v1, v2間の移動にかかるターン数(ジャンプ力 = 1)
+double dist_opt(const Stage& aStage, Vector2 v1, Vector2 v2, int top_k, const std::vector<double>& Theta){
+    std::priority_queue<P_dist, std::vector<P_dist>, Comp_P_dist> que;
+    que.push(P_dist(dist(v1, v2), v1));
+    //const std::vector<double> Theta = {M_PI/2, M_PI/3, M_PI/6, 0, -M_PI/6, -M_PI/3, -M_PI/2};
+    int turn = 0;
+    while(1){
+        Ver pos_array;
+        bool finish = false;
+        while(!que.empty() && (int)pos_array.size() < top_k){
+            auto x = que.top(); que.pop();
+            pos_array.push_back(x.second);
+            if(x.first < EPS){
+                //printf("Found : turn = %d\n", turn);
+                finish = true;
+                break;
+            }
+        }
+
+        // TODO : return path?
+        if(finish)
+            break;
+
+        turn++;
+        queue_clear<decltype(que)>(que);
+        for(auto v : pos_array){
+            for(auto theta : Theta){
+                // +theta, -thetaの両方を行う
+                int nloop = (theta == 0) ? 1 : 2;
+                for(int i = 0; i < nloop; i++){
+                    theta = (i == 0) ? theta : -theta;
+                    auto target = calc_point_rot(v, v2, theta);
+                    if(target.y < 0){
+                        target.x = v.x + (target.x - v.x) * (v.y / (v.y - target.y));
+                        target.y = 0;
+                    }
+                    if(target.x < 0){
+                        target.y = v.y + (target.y - v.y) * (v.x / (v.x - target.x));
+                        target.x = 0;
+                    }
+                    auto nv = aStage.getNextPos(v, 1.0, target);
+                    que.push(P_dist(dist(nv, v2), nv));
+                }
+            }
+        }
+    }
+    return turn;
 }
 
 /// 各点間をINFに初期化
@@ -63,6 +157,17 @@ void calc_distance_greedy(Ver vertices){
             auto v1 = vertices[i];
             auto v2 = vertices[j];
             distance[i][j] = distance[j][i] = dist(v1, v2);
+        }
+    }
+}
+
+void calc_distance_search_topk(const Stage& aStage, Ver vertices, int topk, const std::vector<double>& Theta){
+    int size = vertices.size();
+    for(int i = 0; i < size; i++){
+        for(int j = i+1; j < size; j++){
+            auto v1 = vertices[i];
+            auto v2 = vertices[j];
+            distance[i][j] = distance[j][i] = dist_opt(aStage, v1, v2, topk, Theta);
         }
     }
 }
@@ -113,7 +218,7 @@ void vertices_init(Ver& vertices, const Stage& aStage){
 }
 
 /// next_vertex配列からtargets配列を生成
-void target_sequence(){
+void build_target_sequence(){
     int v = 0;
     int S = 0;
     while(1){
@@ -155,12 +260,15 @@ void Answer::initialize(const Stage& aStage)
     Ver vertices;
     vertices_init(vertices, aStage);
 
-    calc_distance_greedy(vertices);
+    //calc_distance_greedy(vertices);
+    const std::vector<double> Theta = {M_PI/2, M_PI/3, M_PI/4, M_PI/6, 0};
+    const int topk = 10;
+    calc_distance_search_topk(aStage, vertices, topk, Theta);
 
     sales_man_init(vertices.size());
     sales_man(1 << 0, 0, vertices.size());
 
-    target_sequence();
+    build_target_sequence();
 }
 
 //------------------------------------------------------------------------------
