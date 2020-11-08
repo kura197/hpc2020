@@ -8,14 +8,46 @@
 //------------------------------------------------------------------------------
 
 #include "Answer.hpp"
-#include <vector>
+#include <map>
+#include <unordered_map>
 #include <queue>
 #include <cmath>
+#include <algorithm>
+
+template<typename T>
+void hash_combine(size_t & seed, T const& v) {
+    //基本型に関するハッシュ生成は標準ライブラリが提供している
+    std::hash<T> primitive_type_hash;
+
+    //生成したハッシュを合成する。このコードはboostものを使用する
+    seed ^= primitive_type_hash(v) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+}
+
+namespace hpc {
+bool operator==(const Vector2& lhs, const Vector2& rhs){
+    return lhs.x == rhs.x && lhs.y == rhs.y;
+}
+}
+
+namespace std {
+template<>
+class hash<hpc::Vector2>{
+    public:
+        size_t operator()(const hpc::Vector2& data) const {
+            std::size_t seed = 0;
+            hash_combine(seed, data.x);
+            hash_combine(seed, data.y);
+
+            return seed;
+        }
+};
+}
 
 //------------------------------------------------------------------------------
 namespace hpc {
 
 typedef std::vector<Vector2> Ver;
+typedef std::vector<Vector2> Path;
 // {対象までの距離, 座標}
 typedef std::pair<double, Vector2> P_dist;
 
@@ -41,6 +73,7 @@ void sales_man_init(int size);
 double sales_man(int S, int v, int size);
 void vertices_init(Ver& vertices, const Stage& aStage);
 void build_target_sequence();
+Path get_path_opt(const Stage& aStage, Vector2 v1, Vector2 v2, int top_k, const std::vector<double>& Theta);
 
 
 ////////////////////////////////////////////////////////////////////////
@@ -54,12 +87,30 @@ double dist(Vector2 v1, Vector2 v2){
 
 /// v1からv2へrot回転された点を算出
 Vector2 calc_point_rot(Vector2 v1, Vector2 v2, double theta){
-    Vector2 ret = {0, 0};
+    Vector2 target = {0, 0};
     float vec_x = v2.x - v1.x;
     float vec_y = v2.y - v1.y;
-    ret.x = v1.x + vec_x * cos(theta) - vec_y * sin(theta);
-    ret.y = v1.y + vec_x * sin(theta) + vec_y * cos(theta);
-    return ret;
+    target.x = v1.x + vec_x * cos(theta) - vec_y * sin(theta);
+    target.y = v1.y + vec_x * sin(theta) + vec_y * cos(theta);
+    if(target.y < 0){
+        target.x = v1.x + (target.x - v1.x) * (v1.y / (v1.y - target.y));
+        target.y = 0;
+    }
+    if(target.x < 0){
+        target.y = v1.y + (target.y - v1.y) * (v1.x / (v1.x - target.x));
+        target.x = 0;
+    }
+    if(target.y >= Parameter::StageWidth){
+        const float Y = Parameter::StageWidth - EPS;
+        target.x = v1.x + (target.x - v1.x) * ((v1.y - Y) / (v1.y - target.y));
+        target.y = Y;
+    }
+    if(target.x >= Parameter::StageHeight){
+        const float X = Parameter::StageHeight - EPS;
+        target.y = v1.y + (target.y - v1.y) * ((v1.x - X) / (v1.x - target.x));
+        target.x = X;
+    }
+    return target;
 }
 
 // TODO : check efficiency
@@ -89,7 +140,9 @@ double dist_opt(const Stage& aStage, Vector2 v1, Vector2 v2, int top_k, const st
         while(!que.empty() && (int)pos_array.size() < top_k){
             auto x = que.top(); que.pop();
             pos_array.push_back(x.second);
-            if(x.first < EPS){
+            //if(x.first < EPS){
+            auto pos = x.second;
+            if((int)pos.x == (int)v2.x && (int)pos.y == (int)v2.y){
                 //printf("Found : turn = %d\n", turn);
                 finish = true;
                 break;
@@ -108,24 +161,6 @@ double dist_opt(const Stage& aStage, Vector2 v1, Vector2 v2, int top_k, const st
                 for(int i = 0; i < nloop; i++){
                     theta = (i == 0) ? theta : -theta;
                     auto target = calc_point_rot(v, v2, theta);
-                    if(target.y < 0){
-                        target.x = v.x + (target.x - v.x) * (v.y / (v.y - target.y));
-                        target.y = 0;
-                    }
-                    if(target.x < 0){
-                        target.y = v.y + (target.y - v.y) * (v.x / (v.x - target.x));
-                        target.x = 0;
-                    }
-                    if(target.y >= Parameter::StageWidth){
-                        const float Y = Parameter::StageWidth - EPS;
-                        target.x = v.x + (target.x - v.x) * ((v.y - Y) / (v.y - target.y));
-                        target.y = Y;
-                    }
-                    if(target.x >= Parameter::StageHeight){
-                        const float X = Parameter::StageHeight - EPS;
-                        target.y = v.y + (target.y - v.y) * ((v.x - X) / (v.x - target.x));
-                        target.x = X;
-                    }
                     auto nv = aStage.getNextPos(v, 1.0, target);
                     que.push(P_dist(dist(nv, v2), nv));
                 }
@@ -135,30 +170,40 @@ double dist_opt(const Stage& aStage, Vector2 v1, Vector2 v2, int top_k, const st
     return turn;
 }
 
+class Vector2Compare{
+    public:
+        bool operator()(const Vector2& a, const Vector2& b){return (a.x == b.x) ? a.y < b.y : a.x < b.x;};
+};
+
 /// v1, v2間の移動にかかるターン数が最小となるパス
-double get_path_opt(const Stage& aStage, Vector2 v1, Vector2 v2, int top_k, const std::vector<double>& Theta){
+Path get_path_opt(const Stage& aStage, Vector2 v1, Vector2 v2, int top_k, const std::vector<double>& Theta){
     std::priority_queue<P_dist, std::vector<P_dist>, Comp_P_dist> que;
     que.push(P_dist(dist(v1, v2), v1));
-    //const std::vector<double> Theta = {M_PI/2, M_PI/3, M_PI/6, 0, -M_PI/6, -M_PI/3, -M_PI/2};
-    int turn = 0;
+    // 前回の座標値を記録
+    //std::map<Vector2, Vector2, Vector2Compare> pre_pos;
+    //std::unordered_map<MyVector2, Vector2, MyVector2::Hash> pre_pos;
+    std::unordered_map<Vector2, Vector2> pre_pos;
+    Vector2 last;
     while(1){
         Ver pos_array;
         bool finish = false;
         while(!que.empty() && (int)pos_array.size() < top_k){
             auto x = que.top(); que.pop();
             pos_array.push_back(x.second);
-            if(x.first < EPS){
+            //TODO : check validity
+            //if(x.first < EPS){
+            auto pos = x.second;
+            if((int)pos.x == (int)v2.x && (int)pos.y == (int)v2.y){
                 //printf("Found : turn = %d\n", turn);
+                last = x.second;
                 finish = true;
                 break;
             }
         }
 
-        // TODO : return path?
         if(finish)
             break;
 
-        turn++;
         queue_clear<decltype(que)>(que);
         for(auto v : pos_array){
             for(auto theta : Theta){
@@ -167,21 +212,24 @@ double get_path_opt(const Stage& aStage, Vector2 v1, Vector2 v2, int top_k, cons
                 for(int i = 0; i < nloop; i++){
                     theta = (i == 0) ? theta : -theta;
                     auto target = calc_point_rot(v, v2, theta);
-                    if(target.y < 0){
-                        target.x = v.x + (target.x - v.x) * (v.y / (v.y - target.y));
-                        target.y = 0;
+                    auto nv = aStage.getNextPos(v, aStage.rabbit().power(), target);
+                    if(pre_pos.find(nv) != pre_pos.end()){
+                        //printf("Found!!\n");
+                        continue;
                     }
-                    if(target.x < 0){
-                        target.y = v.y + (target.y - v.y) * (v.x / (v.x - target.x));
-                        target.x = 0;
-                    }
-                    auto nv = aStage.getNextPos(v, 1.0, target);
                     que.push(P_dist(dist(nv, v2), nv));
+                    pre_pos[nv] = v;
                 }
             }
         }
     }
-    return turn;
+    Path path;
+    while(!(last.x == v1.x && last.y == v1.y)){
+        path.push_back(last);
+        last = pre_pos[last];
+    }
+    reverse(path.begin(), path.end());
+    return path;
 }
 
 /// 各点間をINFに初期化
@@ -338,6 +386,8 @@ void Answer::initialize(const Stage& aStage)
 /// @detail 移動先を決定して返します
 /// @param aStage 現在のステージ
 /// @return 移動の目標座標
+Path path;
+int path_idx = 0;
 Vector2 Answer::getTargetPos(const Stage& aStage)
 {
     auto pos = aStage.rabbit().pos();
@@ -348,7 +398,9 @@ Vector2 Answer::getTargetPos(const Stage& aStage)
             return scroll.pos();
         }
     }
+    return pos;
 */
+/*
     auto scrolls = aStage.scrolls();
     for(int idx : targets){
         auto scroll = scrolls[idx];
@@ -356,8 +408,30 @@ Vector2 Answer::getTargetPos(const Stage& aStage)
             return scroll.pos();
         }
     }
-
     return pos;
+*/
+//*/
+    if((int)path.size() == path_idx){
+        auto scrolls = aStage.scrolls();
+        for(int idx : targets){
+            auto scroll = scrolls[idx];
+            if (!scroll.isGotten()) {
+                //return scroll.pos();
+                //const int topk = 3;
+                //const std::vector<double> Theta = {M_PI/6, 0};
+                //const int topk = 1;
+                //const std::vector<double> Theta = {0};
+                const std::vector<double> Theta = {M_PI*sqrt(3.0/4), M_PI/6, 0};
+                const int topk = 10;
+                path = get_path_opt(aStage, pos, scroll.pos(), topk, Theta);
+                path_idx = 0;
+                break;
+            }
+        }
+    }
+    auto next = path[path_idx++];
+    return next;
+//*/
 }
 
 //------------------------------------------------------------------------------
