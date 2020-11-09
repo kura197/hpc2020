@@ -86,6 +86,7 @@ void vertices_init(Ver& vertices, const Stage& aStage);
 void build_target_sequence();
 Path get_path_opt(const Stage& aStage, Vector2 v1, Vector2 v2, int top_k, const std::vector<double>& Theta);
 void make_graph(const Stage& aStage);
+bool same(Vector2 v1, Vector2 v2);
 
 
 ////////////////////////////////////////////////////////////////////////
@@ -123,6 +124,11 @@ Vector2 calc_point_rot(Vector2 v1, Vector2 v2, double theta){
         target.x = X;
     }
     return target;
+}
+
+/// v1とv2が同じマスかどうか判定
+bool same(Vector2 v1, Vector2 v2){
+    return ((int)v1.x == (int)v2.x && (int)v1.y == (int)v2.y);
 }
 
 // TODO : check efficiency
@@ -374,7 +380,8 @@ void build_target_sequence(){
 void make_graph(const Stage& aStage){
     for(int y = 0; y < Parameter::StageHeight; y++){
         for(int x = 0; x < Parameter::StageWidth; x++){
-            auto terrain = aStage.terrain(Vector2{(float)y, (float)x});
+            Graph[y][x].clear();
+            auto terrain = aStage.terrain(Vector2{(float)x, (float)y});
             int weight = 100000;
             if(terrain == Terrain::Plain)
                 weight = 3;
@@ -438,7 +445,7 @@ void get_path_from_dijkstra(const Stage& aStage, Path& path, int y1, int x1, int
     int y = y1, x = x1;
     while(d != 0){
         //TODO : to center?
-        path.push_back(Vector2{(float)y+(float)0.5, (float)x+(float)0.5});
+        path.push_back(Vector2{(float)x+(float)0.5, (float)y+(float)0.5});
         const int dx[] = {-1, 1, 0, 0};
         const int dy[] = {0, 0, 1, -1};
         for(int i = 0; i < 4; i++){
@@ -450,7 +457,7 @@ void get_path_from_dijkstra(const Stage& aStage, Path& path, int y1, int x1, int
             //Graph[y][x].push_back(Edge{ny, nx, weight});
             int nd = dist_scroll[dest][ny][nx];
 
-            auto terrain = aStage.terrain(Vector2{(float)ny, (float)nx});
+            auto terrain = aStage.terrain(Vector2{(float)nx, (float)ny});
             int weight = 100000;
             if(terrain == Terrain::Plain)
                 weight = 3;
@@ -466,6 +473,8 @@ void get_path_from_dijkstra(const Stage& aStage, Path& path, int y1, int x1, int
             }
         }
     }
+    auto pos = aStage.scrolls()[dest].pos();
+    path.push_back(pos);
 }
 
 
@@ -482,6 +491,10 @@ Answer::Answer()
 Answer::~Answer()
 {
 }
+
+// for getTragetPos
+Path path;
+int path_idx = 0;
 
 //------------------------------------------------------------------------------
 /// 各ステージ開始時に呼び出される処理
@@ -506,10 +519,12 @@ void Answer::initialize(const Stage& aStage)
     //const int topk = 10;
     //calc_distance_search_topk(aStage, vertices, topk, Theta);
 
-    //sales_man_init(vertices.size());
-    //sales_man(1 << 0, 0, vertices.size());
+    sales_man_init(vertices.size());
+    sales_man(1 << 0, 0, vertices.size());
 
-    //build_target_sequence();
+    build_target_sequence();
+
+    path.clear();
 }
 
 //------------------------------------------------------------------------------
@@ -517,12 +532,10 @@ void Answer::initialize(const Stage& aStage)
 /// @detail 移動先を決定して返します
 /// @param aStage 現在のステージ
 /// @return 移動の目標座標
-Path path;
-int path_idx = 0;
 Vector2 Answer::getTargetPos(const Stage& aStage)
 {
     auto pos = aStage.rabbit().pos();
-///*
+/*
     for(auto scroll : aStage.scrolls()) {
         // まだ手に入れていない巻物を探して、そこに向かって飛ぶ
         if (!scroll.isGotten()) {
@@ -530,7 +543,7 @@ Vector2 Answer::getTargetPos(const Stage& aStage)
         }
     }
     return pos;
-//*/
+*/
 /*
     auto scrolls = aStage.scrolls();
     for(int idx : targets){
@@ -559,6 +572,46 @@ Vector2 Answer::getTargetPos(const Stage& aStage)
     auto next = path[path_idx++];
     return next;
 */
+    if(aStage.turn() == 0 || same(pos, path[path.size()-1])){
+        auto scrolls = aStage.scrolls();
+        for(int idx : targets){
+            auto scroll = scrolls[idx];
+            if (!scroll.isGotten()) {
+                path.clear();
+                get_path_from_dijkstra(aStage, path, pos.y, pos.x, idx);
+                path_idx = 0;
+                break;
+            }
+        }
+    }
+
+    Vector2 next;
+    while(1){
+        //TODO : efficient movement
+        next = path[path_idx];
+        auto test = aStage.getNextPos(pos, aStage.rabbit().power(), next);
+        if(path_idx+1 < (int)path.size() && fabs(next.x - test.x) < EPS && fabs(next.y - test.y) < EPS)
+            path_idx++;
+        else{
+            if(path_idx+1 < (int)path.size()){
+                auto next2 = path[path_idx];
+                next.x = (next.x + next2.x) / 2.0;
+                next.y = (next.y + next2.y) / 2.0;
+            }
+            break;
+        } 
+
+        //if(same(pos, next))
+        //    path_idx++;
+        //else
+        //    break;
+    }
+
+    //if(path_idx+1 < (int)path.size())
+    //    next = path[path_idx];
+
+    return next;
+
 }
 
 //------------------------------------------------------------------------------
