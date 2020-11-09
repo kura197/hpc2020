@@ -350,6 +350,39 @@ double sales_man(int S, int v, int size){
     return DP[S][v] = res;
 }
 
+/// すべての頂点を一度ずつめぐり帰ってくる経路のうち、重みの総和の最小値を求める。
+/// TODO : 巻物の取得数も考慮する.  ほぼ効果なし。
+/// O(2**n n**2)
+double sales_man_scroll(int S, int v, int size){
+    if(DP[S][v] >= 0){
+        return DP[S][v];
+    }
+
+    //if(S == (1 << size)-1 && v == 0)
+    if(S == (1 << size)-1)
+        return DP[S][v] = 0;
+
+    int pop_count = 0;
+    for(int i = 0; i < size; i++)
+        if((S >> i) & 1)
+            pop_count++;
+    float decay = 1.0;
+    for(int p = 0; p < pop_count-1; p++)
+        decay *= 1.1;
+
+    double res = INF;
+    for(int u = 0; u < size; u++){
+        if(!(S >> u & 1)){
+            double tmp = sales_man(S | 1 << u, u, size) + (float)distance[v][u] / decay;
+            if(res > tmp){
+                res = tmp;
+                next_vertex[S][v] = u;
+            }
+        }
+    }
+    return DP[S][v] = res;
+}
+
 /// vertice配列の初期化
 void vertices_init(Ver& vertices, const Stage& aStage){
     vertices.push_back(aStage.rabbit().pos());
@@ -439,18 +472,51 @@ void dijkstra(const Stage& aStage, int s){
     }
 }
 
+/// srcから見たdestが第何象限にあるか
+int get_direction(Vector2 src, Vector2 dest){
+    float x1 = src.x;
+    float y1 = src.y;
+    float x2 = dest.x;
+    float y2 = dest.y;
+
+    float vec_x = x2 - x1;
+    float vec_y = y2 - y1;
+
+    if(vec_x >= 0 && vec_y >= 0)
+        return 0;
+    else if(vec_x < 0 && vec_y >= 0)
+        return 1;
+    else if(vec_x < 0 && vec_y < 0)
+        return 2;
+    else if(vec_x >= 0 && vec_y < 0)
+        return 3;
+    else
+        return -1;
+}
+
 /// {y1, x1} から scrolls[dest] までの経路を復元
 void get_path_from_dijkstra(const Stage& aStage, Path& path, int y1, int x1, int dest){
     int d = dist_scroll[dest][y1][x1];
+    auto target = aStage.scrolls()[dest].pos();
     int y = y1, x = x1;
     while(d != 0){
         //TODO : to center?
         path.push_back(Vector2{(float)x+(float)0.5, (float)y+(float)0.5});
-        const int dx[] = {-1, 1, 0, 0};
-        const int dy[] = {0, 0, 1, -1};
+        //TODO : change sequence
+        //const int dx[] = {-1, 1, 0, 0};
+        //const int dy[] = {0, 0, 1, -1};
+        int dx[2][4][4] = {{{1, 0, -1, 0}, {0, -1, 0, 1}, {-1, 0, 1, 0}, {0, 1, 0, -1}},
+                           {{0, -1, 0, 1}, {-1, 0, 1, 0}, {0, 1, 0, -1}, {1, 0, -1, 0}}};
+        int dy[2][4][4] = {{{0, 1, 0, -1}, {1, 0, -1, 0}, {0, -1, 0, 1}, {-1, 0, 1, 0}},
+                           {{1, 0, -1, 0}, {0, -1, 0, 1}, {-1, 0, 1, 0}, {0, 1, 0, -1}}};
+        int direction = get_direction(Vector2{(float)x+(float)0.5, (float)y+(float)0.5}, target);
+        const int turn = path.size();
+
         for(int i = 0; i < 4; i++){
-            int ny = y + dy[i];
-            int nx = x + dx[i];
+            //int ny = y + dy[i];
+            //int nx = x + dx[i];
+            int ny = y + dy[turn%2][direction][i];
+            int nx = x + dx[turn%2][direction][i];
             if(ny < 0 || nx < 0) continue;
             if(ny >= Parameter::StageHeight) continue;
             if(nx >= Parameter::StageWidth) continue;
@@ -473,8 +539,7 @@ void get_path_from_dijkstra(const Stage& aStage, Path& path, int y1, int x1, int
             }
         }
     }
-    auto pos = aStage.scrolls()[dest].pos();
-    path.push_back(pos);
+    path.push_back(target);
 }
 
 
@@ -520,7 +585,8 @@ void Answer::initialize(const Stage& aStage)
     //calc_distance_search_topk(aStage, vertices, topk, Theta);
 
     sales_man_init(vertices.size());
-    sales_man(1 << 0, 0, vertices.size());
+    //sales_man(1 << 0, 0, vertices.size());
+    sales_man_scroll(1 << 0, 0, vertices.size());
 
     build_target_sequence();
 
@@ -590,7 +656,8 @@ Vector2 Answer::getTargetPos(const Stage& aStage)
         //TODO : efficient movement
         next = path[path_idx];
         auto test = aStage.getNextPos(pos, aStage.rabbit().power(), next);
-        if(path_idx+1 < (int)path.size() && fabs(next.x - test.x) < EPS && fabs(next.y - test.y) < EPS)
+        //if(path_idx+1 < (int)path.size() && fabs(next.x - test.x) < EPS && fabs(next.y - test.y) < EPS)
+        if(path_idx+1 < (int)path.size() && same(next, test))
             path_idx++;
         else{
             if(path_idx+1 < (int)path.size()){
