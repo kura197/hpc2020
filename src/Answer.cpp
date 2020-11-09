@@ -13,6 +13,7 @@
 #include <queue>
 #include <cmath>
 #include <algorithm>
+#include <tuple>
 
 template<typename T>
 void hash_combine(size_t & seed, T const& v) {
@@ -50,6 +51,7 @@ typedef std::vector<Vector2> Ver;
 typedef std::vector<Vector2> Path;
 // {対象までの距離, 座標}
 typedef std::pair<double, Vector2> P_dist;
+typedef std::pair<int, int> P;
 
 const double EPS = 1e-5;
 const double INF = 1e50;
@@ -59,8 +61,16 @@ const int MAX_V = 1 + Parameter::MaxScrollCount;
 /// ウサギ&巻物 間の速さをジャンプ力を1.0とした場合の移動時間
 double distance[25][25];
 
+/// dijkstra方で用いる距離
+int dist_scroll[Parameter::MaxScrollCount][Parameter::StageHeight][Parameter::StageWidth];
+
 /// 巻物の取る順番
 std::vector<int> targets;
+
+struct Edge{int y, x, weight;};
+
+/// 各タイルを結んだグラフ {nx, ny, weight}
+std::vector<Edge> Graph[Parameter::StageHeight][Parameter::StageWidth];
 
 double dist(Vector2 v1, Vector2 v2);
 Vector2 calc_point_rot(Vector2 v1, Vector2 v2, double theta);
@@ -68,12 +78,14 @@ double dist_opt(const Stage& aStage, Vector2 v1, Vector2 v2, int top_k, const st
 void distance_init(const Stage& aStage);
 void warshall_floyd(Ver vertices);
 void calc_distance_greedy(Ver vertices);
+void calc_distance_dijkstra(const Stage& aStage, Ver vertices);
 void calc_distance_search_topk(const Stage& aStage, Ver vertices, int topk, const std::vector<double>& Theta);
 void sales_man_init(int size);
 double sales_man(int S, int v, int size);
 void vertices_init(Ver& vertices, const Stage& aStage);
 void build_target_sequence();
 Path get_path_opt(const Stage& aStage, Vector2 v1, Vector2 v2, int top_k, const std::vector<double>& Theta);
+void make_graph(const Stage& aStage);
 
 
 ////////////////////////////////////////////////////////////////////////
@@ -204,6 +216,7 @@ Path get_path_opt(const Stage& aStage, Vector2 v1, Vector2 v2, int top_k, const 
         if(finish)
             break;
 
+        //TODO : need this??
         queue_clear<decltype(que)>(que);
         for(auto v : pos_array){
             for(auto theta : Theta){
@@ -267,6 +280,7 @@ void calc_distance_greedy(Ver vertices){
     }
 }
 
+/// ビームサーチによる経路探索
 void calc_distance_search_topk(const Stage& aStage, Ver vertices, int topk, const std::vector<double>& Theta){
     int size = vertices.size();
     for(int i = 0; i < size; i++){
@@ -274,6 +288,20 @@ void calc_distance_search_topk(const Stage& aStage, Ver vertices, int topk, cons
             auto v1 = vertices[i];
             auto v2 = vertices[j];
             distance[i][j] = distance[j][i] = dist_opt(aStage, v1, v2, topk, Theta);
+        }
+    }
+}
+
+/// dijkstra法を基にdistanceを更新
+void calc_distance_dijkstra(const Stage& aStage, Ver vertices){
+    int size = vertices.size();
+    // i = 0 : rabbit
+    for(int i = 1; i < size; i++){
+        for(int j = 0; j < size; j++){
+            //auto v1 = vertices[i];
+            int idx = i-1;
+            auto v2 = vertices[j];
+            distance[i][j] = distance[j][i] = dist_scroll[idx][(int)v2.y][(int)v2.x];
         }
     }
 }
@@ -342,6 +370,105 @@ void build_target_sequence(){
     //printf("\n");
 }
 
+/// 地形情報からGraphを初期化.(いらないかも)
+void make_graph(const Stage& aStage){
+    for(int y = 0; y < Parameter::StageHeight; y++){
+        for(int x = 0; x < Parameter::StageWidth; x++){
+            auto terrain = aStage.terrain(Vector2{(float)y, (float)x});
+            int weight = 100000;
+            if(terrain == Terrain::Plain)
+                weight = 3;
+            else if(terrain == Terrain::Bush)
+                weight = 5;
+            else if(terrain == Terrain::Sand)
+                weight = 10;
+            else if(terrain == Terrain::Pond)
+                weight = 30;
+
+            const int dx[] = {-1, 1, 0, 0};
+            const int dy[] = {0, 0, 1, -1};
+            for(int i = 0; i < 4; i++){
+                int ny = y + dy[i];
+                int nx = x + dx[i];
+                if(ny < 0 || nx < 0) continue;
+                if(ny >= Parameter::StageHeight) continue;
+                if(nx >= Parameter::StageWidth) continue;
+                Graph[y][x].push_back(Edge{ny, nx, weight});
+            }
+        }
+    }
+}
+
+///ダイクストラ法
+void dijkstra(const Stage& aStage, int s){
+    const int Y = Parameter::StageHeight;
+    const int X = Parameter::StageWidth;
+    typedef std::tuple<int, int, int> T;
+    for(int y = 0; y < Y; y++)
+        for(int x = 0; x < X; x++)
+            dist_scroll[s][y][x] = 1e6;
+    auto scrolls = aStage.scrolls(); 
+    int y1 = (int)scrolls[s].pos().y, x1 = (int)scrolls[s].pos().x;
+    dist_scroll[s][y1][x1] = 0;
+    // {dist, y, x}
+    std::priority_queue<T, std::vector<T>, std::greater<T>> que;
+    que.push(T(0, y1, x1));
+
+    while(!que.empty()){
+        auto t = que.top(); que.pop();
+        int d = std::get<0>(t);
+        int y = std::get<1>(t);
+        int x = std::get<2>(t);
+        if(dist_scroll[s][y][x] < d) continue;
+        for(auto&& edge : Graph[y][x]){
+            int ny = edge.y;
+            int nx = edge.x;
+            int nd = d + edge.weight;
+            if(dist_scroll[s][ny][nx] > nd){
+                dist_scroll[s][ny][nx] = nd;
+                que.push(T(nd, ny, nx));
+            }
+        }
+    }
+}
+
+/// {y1, x1} から scrolls[dest] までの経路を復元
+void get_path_from_dijkstra(const Stage& aStage, Path& path, int y1, int x1, int dest){
+    int d = dist_scroll[dest][y1][x1];
+    int y = y1, x = x1;
+    while(d != 0){
+        //TODO : to center?
+        path.push_back(Vector2{(float)y+(float)0.5, (float)x+(float)0.5});
+        const int dx[] = {-1, 1, 0, 0};
+        const int dy[] = {0, 0, 1, -1};
+        for(int i = 0; i < 4; i++){
+            int ny = y + dy[i];
+            int nx = x + dx[i];
+            if(ny < 0 || nx < 0) continue;
+            if(ny >= Parameter::StageHeight) continue;
+            if(nx >= Parameter::StageWidth) continue;
+            //Graph[y][x].push_back(Edge{ny, nx, weight});
+            int nd = dist_scroll[dest][ny][nx];
+
+            auto terrain = aStage.terrain(Vector2{(float)ny, (float)nx});
+            int weight = 100000;
+            if(terrain == Terrain::Plain)
+                weight = 3;
+            else if(terrain == Terrain::Bush)
+                weight = 5;
+            else if(terrain == Terrain::Sand)
+                weight = 10;
+            else if(terrain == Terrain::Pond)
+                weight = 30;
+            if(nd + weight == d){
+                d = nd, y = ny, x = nx;
+                break;
+            }
+        }
+    }
+}
+
+
 //------------------------------------------------------------------------------
 /// コンストラクタ
 /// @detail 最初のステージ開始前に実行したい処理があればここに書きます
@@ -369,16 +496,20 @@ void Answer::initialize(const Stage& aStage)
     Ver vertices;
     vertices_init(vertices, aStage);
 
+    make_graph(aStage);
+    for(int v = 0; v < (int)aStage.scrolls().count(); v++)
+        dijkstra(aStage, v);
+    calc_distance_dijkstra(aStage, vertices);
+
     //calc_distance_greedy(vertices);
-    //const std::vector<double> Theta = {M_PI/2, M_PI/3, M_PI/4, M_PI/6, 0};
-    const std::vector<double> Theta = {M_PI*sqrt(3.0/4), M_PI/6, 0};
-    const int topk = 10;
-    calc_distance_search_topk(aStage, vertices, topk, Theta);
+    //const std::vector<double> Theta = {M_PI*sqrt(3.0/4), M_PI/6, 0};
+    //const int topk = 10;
+    //calc_distance_search_topk(aStage, vertices, topk, Theta);
 
-    sales_man_init(vertices.size());
-    sales_man(1 << 0, 0, vertices.size());
+    //sales_man_init(vertices.size());
+    //sales_man(1 << 0, 0, vertices.size());
 
-    build_target_sequence();
+    //build_target_sequence();
 }
 
 //------------------------------------------------------------------------------
@@ -391,7 +522,7 @@ int path_idx = 0;
 Vector2 Answer::getTargetPos(const Stage& aStage)
 {
     auto pos = aStage.rabbit().pos();
-/*
+///*
     for(auto scroll : aStage.scrolls()) {
         // まだ手に入れていない巻物を探して、そこに向かって飛ぶ
         if (!scroll.isGotten()) {
@@ -399,7 +530,7 @@ Vector2 Answer::getTargetPos(const Stage& aStage)
         }
     }
     return pos;
-*/
+//*/
 /*
     auto scrolls = aStage.scrolls();
     for(int idx : targets){
@@ -410,19 +541,15 @@ Vector2 Answer::getTargetPos(const Stage& aStage)
     }
     return pos;
 */
-//*/
+/*
     if((int)path.size() == path_idx){
         auto scrolls = aStage.scrolls();
         for(int idx : targets){
             auto scroll = scrolls[idx];
             if (!scroll.isGotten()) {
-                //return scroll.pos();
-                //const int topk = 3;
-                //const std::vector<double> Theta = {M_PI/6, 0};
-                //const int topk = 1;
-                //const std::vector<double> Theta = {0};
-                const std::vector<double> Theta = {M_PI*sqrt(3.0/4), M_PI/6, 0};
-                const int topk = 10;
+                //const std::vector<double> Theta = {M_PI/2.0, M_PI*sqrt(1.0/2), 0};
+                const std::vector<double> Theta = {M_PI/2.0, M_PI*sqrt(1.0/2), 0};
+                const int topk = 1000;
                 path = get_path_opt(aStage, pos, scroll.pos(), topk, Theta);
                 path_idx = 0;
                 break;
@@ -431,7 +558,7 @@ Vector2 Answer::getTargetPos(const Stage& aStage)
     }
     auto next = path[path_idx++];
     return next;
-//*/
+*/
 }
 
 //------------------------------------------------------------------------------
