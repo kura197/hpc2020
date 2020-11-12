@@ -59,6 +59,8 @@ const double INF = 1e50;
 /// rabbit : 0, others : 1 - 20
 const int MAX_V = 1 + Parameter::MaxScrollCount;
 
+float POWER[30];
+
 /// ウサギ&巻物 間の速さをジャンプ力を1.0とした場合の移動時間
 double distance[25][25];
 
@@ -503,7 +505,8 @@ int get_direction(Vector2 src, Vector2 dest){
 
 /// {y1, x1} から scrolls[dest] までの経路を復元.
 /// TODO:最後はdest2に近い方角で終わる。 ラストから決めていかないとまずい？？
-void get_path_from_dijkstra(const Stage& aStage, Path& path, int y1, int x1, int dest, int dest2){
+Vector2 first_step[MAX_V];
+void get_path_from_dijkstra(const Stage& aStage, Path& path, int y1, int x1, int src, int dest, int dest2){
     //TODO : 最初の地点を保存？
     int d = dist_scroll[dest][y1][x1];
     auto target = aStage.scrolls()[dest].pos();
@@ -543,8 +546,15 @@ void get_path_from_dijkstra(const Stage& aStage, Path& path, int y1, int x1, int
             if(nd + weight == d){
                 float tx = x + 0.5, ty = y + 0.5;
                 if(nd == 0){
-                    tx = ((1+EPS)*(nx+0.5) + (x+0.5)) / (2. + EPS);
-                    ty = ((1+EPS)*(ny+0.5) + (y+0.5)) / (2. + EPS);
+                    if(dest2 < 0){
+                        tx = ((1+EPS)*(nx+0.5) + (x+0.5)) / (2. + EPS);
+                        ty = ((1+EPS)*(ny+0.5) + (y+0.5)) / (2. + EPS);
+                    }
+                    else{
+                        auto next_step = first_step[dest2];
+                        tx = ((1+EPS)*(nx+0.5) + (next_step.x+0.5)) / (2. + EPS);
+                        ty = ((1+EPS)*(ny+0.5) + (next_step.y+0.5)) / (2. + EPS);
+                    }
                 }else{
                     auto ter_org = aStage.terrain(Vector2{x+EPS, y+EPS});
                     auto ter_nxt = aStage.terrain(Vector2{nx+EPS, ny+EPS});
@@ -553,6 +563,7 @@ void get_path_from_dijkstra(const Stage& aStage, Path& path, int y1, int x1, int
                         ty = (y + ny + 1) / 2.0;
                     }
                     else if(ter_org < ter_nxt){
+                        ////TODO : もう少し簡単に
                         tx = ((nx+0.5) + (1+EPS)*(x+0.5)) / (2. + EPS);
                         ty = ((ny+0.5) + (1+EPS)*(y+0.5)) / (2. + EPS);
                     }
@@ -560,6 +571,9 @@ void get_path_from_dijkstra(const Stage& aStage, Path& path, int y1, int x1, int
                         tx = ((1+EPS)*(nx+0.5) + (x+0.5)) / (2. + EPS);
                         ty = ((1+EPS)*(ny+0.5) + (y+0.5)) / (2. + EPS);
                     }
+
+                    if(path.size() == 0 && src >= 0)
+                        first_step[src] = Vector2{tx, ty};
                 }
                 path.push_back(Vector2{tx, ty});
                 d = nd, y = ny, x = nx;
@@ -569,108 +583,64 @@ void get_path_from_dijkstra(const Stage& aStage, Path& path, int y1, int x1, int
     }
 }
 
+/// {y1, x1} から scrolls[dest] までの経路を復元. 実装を簡単にするため、目標値はすべてマスの中心にする
+void get_path_from_dijkstra_simple(const Stage& aStage, Path& path, int y1, int x1, int src, int dest, int dest2){
+    int d = dist_scroll[dest][y1][x1];
+    auto target = aStage.scrolls()[dest].pos();
+    int y = y1, x = x1;
+    while(d != 0){
+        //TODO : to center? 
+        // 特にtargetが池の場合は少し入ってすぐ出るべきだから中心はまずい
+        path.push_back(Vector2{(float)x+(float)0.5, (float)y+(float)0.5});
+        int dx[2][4][4] = {{{1, 0, -1, 0}, {0, -1, 0, 1}, {-1, 0, 1, 0}, {0, 1, 0, -1}},
+                           {{0, -1, 0, 1}, {-1, 0, 1, 0}, {0, 1, 0, -1}, {1, 0, -1, 0}}};
+        int dy[2][4][4] = {{{0, 1, 0, -1}, {1, 0, -1, 0}, {0, -1, 0, 1}, {-1, 0, 1, 0}},
+                           {{1, 0, -1, 0}, {0, -1, 0, 1}, {-1, 0, 1, 0}, {0, 1, 0, -1}}};
+        int direction = get_direction(Vector2{(float)x+(float)0.5, (float)y+(float)0.5}, target);
+        const int turn = path.size();
 
-//------------------------------------------------------------------------------
-/// コンストラクタ
-/// @detail 最初のステージ開始前に実行したい処理があればここに書きます
-Answer::Answer()
-{
-}
+        for(int i = 0; i < 4; i++){
+            //int ny = y + dy[i];
+            //int nx = x + dx[i];
+            int ny = y + dy[turn%2][direction][i];
+            int nx = x + dx[turn%2][direction][i];
+            if(ny < 0 || nx < 0) continue;
+            if(ny >= Parameter::StageHeight) continue;
+            if(nx >= Parameter::StageWidth) continue;
+            //Graph[y][x].push_back(Edge{ny, nx, weight});
+            int nd = dist_scroll[dest][ny][nx];
 
-//------------------------------------------------------------------------------
-/// デストラクタ
-/// @detail 最後のステージ終了後に実行したい処理があればここに書きます
-Answer::~Answer()
-{
-}
-
-// for getTragetPos
-Path path;
-int path_idx = 0;
-bool big_jump;
-
-/// TODO : Game Emulation
-/// targets配列の順序をランダムに変えてみる？
-
-//------------------------------------------------------------------------------
-/// 各ステージ開始時に呼び出される処理
-/// @detail 各ステージに対する初期化処理が必要ならここに書きます
-/// @param aStage 現在のステージ
-//int test;
-void Answer::initialize(const Stage& aStage)
-{
-    //printf("test : %d\n", test++);
-    //if(aStage.turn() < 1)
-    //    return;
-
-    // {rabbit, scroll0, scroll1, ...}
-    Ver vertices;
-    vertices_init(vertices, aStage);
-
-    make_graph(aStage);
-    for(int v = 0; v < (int)aStage.scrolls().count(); v++)
-        dijkstra(aStage, v);
-    calc_distance_dijkstra(aStage, vertices);
-
-    //calc_distance_greedy(vertices);
-    //const std::vector<double> Theta = {M_PI*sqrt(3.0/4), M_PI/6, 0};
-    //const int topk = 10;
-    //calc_distance_search_topk(aStage, vertices, topk, Theta);
-
-    sales_man_init(vertices.size());
-    //sales_man(1 << 0, 0, vertices.size());
-    sales_man_scroll(1 << 0, 0, vertices.size());
-
-    build_target_sequence();
-
-    path.clear();
-    big_jump = false;
-}
-
-//------------------------------------------------------------------------------
-/// 毎フレーム呼び出される処理
-/// @detail 移動先を決定して返します
-/// @param aStage 現在のステージ
-/// @return 移動の目標座標
-Vector2 Answer::getTargetPos(const Stage& aStage)
-{
-    auto pos = aStage.rabbit().pos();
-/*
-    for(auto scroll : aStage.scrolls()) {
-        // まだ手に入れていない巻物を探して、そこに向かって飛ぶ
-        if (!scroll.isGotten()) {
-            return scroll.pos();
-        }
-    }
-    return pos;
-*/
-    if(aStage.turn() == 0 || same(pos, path[path.size()-1])){
-        auto scrolls = aStage.scrolls();
-        for(int i = 0; i < (int)targets.size(); i++){
-            int idx = targets[i];
-            auto scroll = scrolls[idx];
-            if (!scroll.isGotten()) {
-                path.clear();
-                if(i == (int)targets.size()-1)
-                    get_path_from_dijkstra(aStage, path, pos.y, pos.x, idx, -1);
-                else
-                    get_path_from_dijkstra(aStage, path, pos.y, pos.x, idx, targets[i+1]);
-                path_idx = 0;
+            auto terrain = aStage.terrain(Vector2{(float)nx, (float)ny});
+            int weight = 100000;
+            if(terrain == Terrain::Plain)
+                weight = 3;
+            else if(terrain == Terrain::Bush)
+                weight = 5;
+            else if(terrain == Terrain::Sand)
+                weight = 10;
+            else if(terrain == Terrain::Pond)
+                weight = 30;
+            if(nd + weight == d){
+                d = nd, y = ny, x = nx;
                 break;
             }
         }
     }
+    path.push_back(Vector2{(float)(x+0.5), (float)(y+0.5)});
+}
 
+/// ウサギが次にジャンプすべき座標を計算
+Vector2 next_path(const Stage& aStage, Path path, int& path_idx, Vector2 cur_pos, float power){
     Vector2 target;
     Terrain tar_terrain;
-    Vector2 pre_point = pos;
+    Vector2 pre_point = cur_pos;
     Terrain pre_terrain = aStage.terrain(pre_point);
     bool first = true;
     int tmp_idx = 0;
 
     for(int k = std::min(path_idx + 5, (int)path.size()-1); k > path_idx; k--){
         auto tmp_target = path[k];
-        if(same(tmp_target, pos)){
+        if(same(tmp_target, cur_pos)){
             path_idx = k;
             break;
         }
@@ -681,17 +651,19 @@ Vector2 Answer::getTargetPos(const Stage& aStage)
         target = path[path_idx + tmp_idx];
         tar_terrain = aStage.terrain(target);
 
-        auto next = aStage.getNextPos(pos, aStage.rabbit().power(), target);
+        auto next = aStage.getNextPos(cur_pos, power, target);
         auto nex_terrain = aStage.terrain(next);
 
         if(!first && tar_terrain > pre_terrain){
             target = pre_point;
             break;
         }
-        else if(path_idx+1 < (int)path.size() && same_float(target, next)){
+        //else if(path_idx+1 < (int)path.size() && same_float(target, next)){
+        else if(path_idx+tmp_idx+1 < (int)path.size() && same_float(target, next)){
             path_idx++;
         }
-        else if(path_idx+1 < (int)path.size() && same(target, next)){
+        //else if(path_idx+1 < (int)path.size() && same(target, next)){
+        else if(path_idx+tmp_idx+1 < (int)path.size() && same(target, next)){
             tmp_idx++;
         }
         else{
@@ -707,7 +679,222 @@ Vector2 Answer::getTargetPos(const Stage& aStage)
         first = false;
     }
     return target;
+}
 
+/// TODO : {U, R, D, L}から出発した際の
+/// 点間移動する際のウサギの通る座標 {rabbit, scroll01, scroll02, ...}
+Path sequence[4][MAX_V][MAX_V];
+
+/// 点間の中心を移動する際のウサギの通る座標 {rabbit, scroll01, scroll02, ...}
+Path sequence_simple[MAX_V][MAX_V];
+
+/// 点間のダイクストラ距離 {rabbit, scroll01, scroll02, ...}
+Path dijkstra_path[MAX_V][MAX_V];
+
+/// dijkstra_pathを全点間で作成
+void build_all_dijkstra_path(const Stage& aStage){
+    const int scroll_num = aStage.scrolls().count();
+    for(int i = 0; i < scroll_num+1; i++){
+        for(int j = 1; j < scroll_num+1; j++){
+            if(i == j) continue;
+            auto src = (i == 0) ? aStage.rabbit().pos() : aStage.scrolls()[i-1];
+            dijkstra_path[i][j].clear();
+            //get_path_from_dijkstra(aStage, dijkstra_path[i][j], src.pos().y, src.pos().x, -1, j-1, -1);
+            get_path_from_dijkstra_simple(aStage, dijkstra_path[i][j], src.pos().y, src.pos().x, -1, j-1, -1);
+        }
+    }
+}
+
+// v1 -> v2 へのウサギの通る座標(sequence)を更新
+// TODO : 接続は意識しなくても大丈夫?
+// TODO : sequenceを方角毎におこなう。 <- dijkstraの目標位置と一致すべき
+void update_path(const Stage& aStage, int v1, int v2, float power){
+    auto scrolls = aStage.scrolls();
+    auto dest = scrolls[v2-1].pos();
+
+    const float dx[] = {0, (float)(0.5-EPS), 0, -0.5};
+    const float dy[] = {(float)(0.5-EPS), 0, -0.5, 0};
+    for(int i = 0; i < 4; i++){
+        if(v1 == 0 && i > 0) return;
+        auto pos = (v1 == 0) ? aStage.rabbit().pos() : scrolls[v1-1].pos();
+        pos.x += dx[i], pos.y += dy[i];
+        int path_idx = 0;
+        sequence[i][v1][v2].clear();
+        while(1){
+            auto target = next_path(aStage, dijkstra_path[v1][v2], path_idx, pos, power);
+            pos = aStage.getNextPos(pos, power, target);
+            sequence[i][v1][v2].push_back(pos);
+            if(same(pos, dest))
+                break;
+        }
+    }
+}
+
+// v1 -> v2 へのウサギの通る座標(sequence_simple)を更新
+void update_path_simple(const Stage& aStage, int v1, int v2, float power){
+    auto scrolls = aStage.scrolls();
+    auto dest = scrolls[v2-1].pos();
+    auto pos = (v1 == 0) ? aStage.rabbit().pos() : scrolls[v1-1].pos();
+
+    int path_idx = 0;
+    sequence_simple[v1][v2].clear();
+    while(1){
+        auto target = next_path(aStage, dijkstra_path[v1][v2], path_idx, pos, power);
+        pos = aStage.getNextPos(pos, power, target);
+        sequence_simple[v1][v2].push_back(pos);
+        //if(same(pos, dest))
+        if(same_float(pos, dest))
+            break;
+    }
+}
+
+
+//------------------------------------------------------------------------------
+/// コンストラクタ
+/// @detail 最初のステージ開始前に実行したい処理があればここに書きます
+Answer::Answer()
+{
+    float power = 1.0;
+    for(int i = 0; i < 20; i++){
+        POWER[i] = power;
+        power *= 1.1;
+    }
+}
+
+//------------------------------------------------------------------------------
+/// デストラクタ
+/// @detail 最後のステージ終了後に実行したい処理があればここに書きます
+Answer::~Answer()
+{
+}
+
+// for getTragetPos
+Path path;
+//int path_idx = 0;
+bool big_jump;
+
+/// TODO : Game Emulation
+/// targets配列の順序をランダムに変えてみる？
+
+//------------------------------------------------------------------------------
+/// 各ステージ開始時に呼び出される処理
+/// @detail 各ステージに対する初期化処理が必要ならここに書きます
+/// @param aStage 現在のステージ
+int test_idx;
+void Answer::initialize(const Stage& aStage)
+{
+    test_idx++;
+    //printf("test : %d\n", test_idx);
+
+    // {rabbit, scroll0, scroll1, ...}
+    Ver vertices;
+    vertices_init(vertices, aStage);
+
+    make_graph(aStage);
+    for(int v = 0; v < (int)aStage.scrolls().count(); v++)
+        dijkstra(aStage, v);
+    calc_distance_dijkstra(aStage, vertices);
+
+    build_all_dijkstra_path(aStage);
+
+    //calc_distance_greedy(vertices);
+    //const std::vector<double> Theta = {M_PI*sqrt(3.0/4), M_PI/6, 0};
+    //const int topk = 10;
+    //calc_distance_search_topk(aStage, vertices, topk, Theta);
+
+    sales_man_init(vertices.size());
+    //sales_man(1 << 0, 0, vertices.size());
+    sales_man_scroll(1 << 0, 0, vertices.size());
+
+    build_target_sequence();
+
+    int src = 0;
+    for(int i = 0; i < (int)targets.size(); i++){
+        auto idx = targets[i];
+        update_path_simple(aStage, src, idx+1, POWER[i]);
+        //update_path_simple(aStage, src, idx+1, 1.0);
+        src = idx+1;
+    }
+
+    path.clear();
+    big_jump = false;
+}
+
+//------------------------------------------------------------------------------
+/// 毎フレーム呼び出される処理
+/// @detail 移動先を決定して返します
+/// @param aStage 現在のステージ
+/// @return 移動の目標座標
+Vector2 Answer::getTargetPos(const Stage& aStage)
+{
+/*
+    auto pos = aStage.rabbit().pos();
+    for(auto scroll : aStage.scrolls()) {
+        // まだ手に入れていない巻物を探して、そこに向かって飛ぶ
+        if (!scroll.isGotten()) {
+            return scroll.pos();
+        }
+    }
+    return pos;
+*/
+/*
+    auto pos = aStage.rabbit().pos();
+    static int path_idx;
+    if(aStage.turn() == 0 || same(pos, path[path.size()-1])){
+        auto scrolls = aStage.scrolls();
+        for(int i = 0; i < (int)targets.size(); i++){
+            int idx = targets[i];
+            auto scroll = scrolls[idx];
+            if (!scroll.isGotten()) {
+                int src = (i == 0) ? -1 : i-1;
+                path.clear();
+                if(i == (int)targets.size()-1)
+                    get_path_from_dijkstra(aStage, path, pos.y, pos.x, src, idx, -1);
+                else
+                    //get_path_from_dijkstra(aStage, path, pos.y, pos.x, src, idx, targets[i+1]);
+                    get_path_from_dijkstra(aStage, path, pos.y, pos.x, src, idx, -1);
+                path_idx = 0;
+                break;
+            }
+        }
+    }
+    auto next = next_path(aStage, path, path_idx, pos, aStage.rabbit().power());
+    return next;
+*/
+///*
+    static int src, dest;
+    static int dest_idx;
+    static int path_idx;
+    if(aStage.turn() == 0){
+        dest_idx = 0;
+        src = 0;
+        dest = 1 + targets[dest_idx++];
+        path_idx = 0;
+    }
+
+    if((int)sequence_simple[src][dest].size() == path_idx){
+        //printf("Change target\n\n");
+        src = dest;
+        dest = 1 + targets[dest_idx++];
+        path_idx = 0;
+    }
+
+    auto next = sequence_simple[src][dest][path_idx++];
+    //{
+    //    auto ra = aStage.rabbit().pos();
+    //    printf("Rabbit : (%f, %f)\n", ra.x, ra.y);
+    //    printf("Next : (%f, %f)\n", next.x, next.y);
+    //    printf("Terrain : %d\n", (int)aStage.terrain(ra));
+    //    int get_num = 0;
+    //    auto scrolls = aStage.scrolls();
+    //    for(auto&& scroll : scrolls){
+    //        if(scroll.isGotten())
+    //            get_num++;
+    //    }
+    //    printf("Num of got scrolls : %d\n", get_num);
+    //}
+    return next;
+//*/
 /* //池ポチャ
     const Vector2 fail = {-1, -1};
     Vector2 target = fail;
