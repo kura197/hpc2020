@@ -14,6 +14,8 @@
 #include <cmath>
 #include <algorithm>
 #include <tuple>
+#include <cassert>
+#include <random>
 
 template<typename T>
 void hash_combine(size_t & seed, T const& v) {
@@ -403,6 +405,7 @@ void vertices_init(Ver& vertices, const Stage& aStage){
 void build_target_sequence(){
     int v = 0;
     int S = 0;
+    targets.clear();
     while(1){
         S |= 1 << v;
         v = next_vertex[S][v];
@@ -683,7 +686,7 @@ Vector2 next_path(const Stage& aStage, Path path, int& path_idx, Vector2 cur_pos
 
 /// TODO : {U, R, D, L}から出発した際の
 /// 点間移動する際のウサギの通る座標 {rabbit, scroll01, scroll02, ...}
-Path sequence[4][MAX_V][MAX_V];
+//Path sequence[4][MAX_V][MAX_V];
 
 /// 点間の中心を移動する際のウサギの通る座標 {rabbit, scroll01, scroll02, ...}
 Path sequence_simple[MAX_V][MAX_V];
@@ -708,27 +711,27 @@ void build_all_dijkstra_path(const Stage& aStage){
 // v1 -> v2 へのウサギの通る座標(sequence)を更新
 // TODO : 接続は意識しなくても大丈夫?
 // TODO : sequenceを方角毎におこなう。 <- dijkstraの目標位置と一致すべき
-void update_path(const Stage& aStage, int v1, int v2, float power){
-    auto scrolls = aStage.scrolls();
-    auto dest = scrolls[v2-1].pos();
-
-    const float dx[] = {0, (float)(0.5-EPS), 0, -0.5};
-    const float dy[] = {(float)(0.5-EPS), 0, -0.5, 0};
-    for(int i = 0; i < 4; i++){
-        if(v1 == 0 && i > 0) return;
-        auto pos = (v1 == 0) ? aStage.rabbit().pos() : scrolls[v1-1].pos();
-        pos.x += dx[i], pos.y += dy[i];
-        int path_idx = 0;
-        sequence[i][v1][v2].clear();
-        while(1){
-            auto target = next_path(aStage, dijkstra_path[v1][v2], path_idx, pos, power);
-            pos = aStage.getNextPos(pos, power, target);
-            sequence[i][v1][v2].push_back(pos);
-            if(same(pos, dest))
-                break;
-        }
-    }
-}
+//void update_path(const Stage& aStage, int v1, int v2, float power){
+//    auto scrolls = aStage.scrolls();
+//    auto dest = scrolls[v2-1].pos();
+//
+//    const float dx[] = {0, (float)(0.5-EPS), 0, -0.5};
+//    const float dy[] = {(float)(0.5-EPS), 0, -0.5, 0};
+//    for(int i = 0; i < 4; i++){
+//        if(v1 == 0 && i > 0) return;
+//        auto pos = (v1 == 0) ? aStage.rabbit().pos() : scrolls[v1-1].pos();
+//        pos.x += dx[i], pos.y += dy[i];
+//        int path_idx = 0;
+//        sequence[i][v1][v2].clear();
+//        while(1){
+//            auto target = next_path(aStage, dijkstra_path[v1][v2], path_idx, pos, power);
+//            pos = aStage.getNextPos(pos, power, target);
+//            sequence[i][v1][v2].push_back(pos);
+//            if(same(pos, dest))
+//                break;
+//        }
+//    }
+//}
 
 // v1 -> v2 へのウサギの通る座標(sequence_simple)を更新
 void update_path_simple(const Stage& aStage, int v1, int v2, float power){
@@ -748,6 +751,62 @@ void update_path_simple(const Stage& aStage, int v1, int v2, float power){
     }
 }
 
+/// targets配列の初期化 & 
+void targets_init(const Stage& aStage){
+    const int nscrolls = aStage.scrolls().count();
+    targets.resize(nscrolls);
+    for(int i = 0; i < nscrolls; i++) 
+        targets[i] = i;
+}
+
+/// targetsからpathをupdate
+void update_path_from_targets(const Stage& aStage){
+    const int nscrolls = aStage.scrolls().count();
+    int src = 0;
+    for(int i = 0; i < nscrolls; i++){
+        auto idx = targets[i]+1;
+        update_path_simple(aStage, src, idx, POWER[i]);
+        src = idx;
+    }
+}
+
+/// TODO : 部分的な高速計算？
+/// 終了までに要するターン数を計算
+int path_length(const Stage& aStage){
+    const int nscrolls = aStage.scrolls().count();
+    int src = 0;
+    int npath = 0;
+    for(int i = 0; i < nscrolls; i++){
+        auto idx = targets[i] + 1;
+        npath += sequence_simple[src][idx].size();
+        src = idx;
+    }
+    return npath;
+}
+
+/// targetsのv1番目とv2番目を交換し、再計算
+void change_vertex(const Stage& aStage, int v1, int v2){
+    assert(v1 != v2);
+    if(v1 > v2) std::swap(v1, v2);
+    const int nscrolls = aStage.scrolls().count();
+    int pre_v1 = (v1 == 0) ? 0 : targets[v1-1]+1;
+    int pre_v2 = targets[v2-1]+1;
+    std::swap(targets[v1], targets[v2]);
+    if(v2 - v1 > 1){
+        update_path_simple(aStage, pre_v1,        targets[v1]+1, POWER[v1]);
+        update_path_simple(aStage, targets[v1]+1, targets[v1+1]+1, POWER[v1+1]);
+        update_path_simple(aStage, pre_v2,        targets[v2]+1, POWER[v2]);
+        if(v2+1 < nscrolls)
+            update_path_simple(aStage, targets[v2]+1, targets[v2+1]+1, POWER[v2+1]);
+    }
+    else{
+        update_path_simple(aStage, pre_v1,        targets[v1]+1, POWER[v1]);
+        update_path_simple(aStage, targets[v1]+1, targets[v2]+1, POWER[v1+1]);
+        if(v2+1 < nscrolls)
+            update_path_simple(aStage, targets[v2]+1, targets[v2+1]+1, POWER[v2+1]);
+    }
+}
+
 
 //------------------------------------------------------------------------------
 /// コンストラクタ
@@ -758,6 +817,75 @@ Answer::Answer()
     for(int i = 0; i < 20; i++){
         POWER[i] = power;
         power *= 1.1;
+    }
+}
+
+/// 2-opt法でTSPを解く (1.404sec)
+void tsp_2opt(const Stage& aStage){
+    const int nscrolls = aStage.scrolls().count();
+    if(nscrolls > 1){
+        int nstep = path_length(aStage);
+        while(1){
+            bool update = false;
+            for(int i = 0; i < nscrolls; i++){
+                for(int j = i+1; j < nscrolls; j++){
+                    change_vertex(aStage, i, j);
+                    int new_nstep = path_length(aStage);
+                    if(new_nstep < nstep){
+                        nstep = new_nstep;
+                        update = true;
+                    }
+                    else{
+                        //TODO : efficeint reverse
+                        change_vertex(aStage, i, j);
+                    }
+                }
+            }
+
+            if(!update)
+                break;
+            //else
+            //    printf("return %d\n", nstep);
+        }
+    }
+}
+
+unsigned int randxor()
+{
+    static unsigned int x=123456789,y=362436069,z=521288629,w=88675123;
+    unsigned int t;
+    t=(x^(x<<11));x=y;y=z;z=w; return( w=(w^(w>>19))^(t^(t>>8)) );
+}
+
+/// SA法でTSPを解く
+void tsp_sa(const Stage& aStage, int iteration){
+    const int N = aStage.scrolls().count();
+
+    const double startTemp = 10;
+    const double endTemp = 1;
+    const int R = 10000;
+    const int T = iteration;
+
+    int nstep = path_length(aStage);
+    for(int t = 0; t < iteration; t++){
+        int v1 = randxor() % N, v2 = randxor() % N;
+        while(v1 == v2)
+            v1 = randxor() % N, v2 = randxor() % N;
+
+        change_vertex(aStage, v1, v2);
+        int new_nstep = path_length(aStage);
+
+        double temp = startTemp + (endTemp - startTemp) * t / T;
+        double probability = exp((nstep - new_nstep) / temp);
+        bool force_next = probability > (double)(randxor() % R) / R;
+
+        if(new_nstep < nstep || force_next){
+            nstep = new_nstep;
+        }
+        else{
+            //TODO : efficeint reverse
+            change_vertex(aStage, v1, v2);
+        }
     }
 }
 
@@ -802,18 +930,29 @@ void Answer::initialize(const Stage& aStage)
     //const int topk = 10;
     //calc_distance_search_topk(aStage, vertices, topk, Theta);
 
-    sales_man_init(vertices.size());
-    //sales_man(1 << 0, 0, vertices.size());
-    sales_man_scroll(1 << 0, 0, vertices.size());
+    /// 32318
+    //sales_man_init(vertices.size());
+    //sales_man_scroll(1 << 0, 0, vertices.size());
+    //build_target_sequence();
+    //update_path_from_targets(aStage);
+    //tsp_2opt(aStage);
 
-    build_target_sequence();
+    int nscrolls = aStage.scrolls().count();
+    if(nscrolls >= 8){
+        targets_init(aStage);
+        update_path_from_targets(aStage);
+        
+        int iteration = 1;
+        iteration = 15000;
+        tsp_sa(aStage, iteration);
 
-    int src = 0;
-    for(int i = 0; i < (int)targets.size(); i++){
-        auto idx = targets[i];
-        update_path_simple(aStage, src, idx+1, POWER[i]);
-        //update_path_simple(aStage, src, idx+1, 1.0);
-        src = idx+1;
+        tsp_2opt(aStage);
+    }
+    else{
+        sales_man_init(vertices.size());
+        sales_man_scroll(1 << 0, 0, vertices.size());
+        build_target_sequence();
+        update_path_from_targets(aStage);
     }
 
     path.clear();
