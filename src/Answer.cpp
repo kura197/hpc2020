@@ -88,7 +88,7 @@ void calc_distance_search_topk(const Stage& aStage, Ver vertices, int topk, cons
 void sales_man_init(int size);
 double sales_man(int S, int v, int size);
 void vertices_init(Ver& vertices, const Stage& aStage);
-void build_target_sequence();
+void build_target_sequence_from_tsp();
 Path get_path_opt(const Stage& aStage, Vector2 v1, Vector2 v2, int top_k, const std::vector<double>& Theta);
 void make_graph(const Stage& aStage);
 bool same_float(Vector2 v1, Vector2 v2);
@@ -402,7 +402,7 @@ void vertices_init(Ver& vertices, const Stage& aStage){
 }
 
 /// next_vertex配列からtargets配列を生成
-void build_target_sequence(){
+void build_target_sequence_from_tsp(){
     int v = 0;
     int S = 0;
     targets.clear();
@@ -784,6 +784,28 @@ int path_length(const Stage& aStage){
     return npath;
 }
 
+/// 終了までに要するターン数を計算
+float path_length_from_dijkstra(const Stage& aStage){
+    const auto scrolls = aStage.scrolls();
+    const int nscrolls = scrolls.count();
+    int src = -1;
+    float npath = 0;
+    for(int i = 0; i < nscrolls; i++){
+        //auto idx = targets[i] + 1;
+        auto dest = targets[i];
+        //TODO : not size
+        //npath += (float)dijkstra_path[src][idx].size() / POWER[i];
+        Vector2 pos = {-1, -1};
+        if(i == 0)
+            pos = aStage.rabbit().pos();
+        else
+            pos = scrolls[src].pos();
+        npath += (float)dist_scroll[dest][(int)pos.y][(int)pos.x] / (POWER[i]);
+        src = dest;
+    }
+    return npath;
+}
+
 /// targetsのv1番目とv2番目を交換し、再計算
 void change_vertex(const Stage& aStage, int v1, int v2){
     assert(v1 != v2);
@@ -807,17 +829,10 @@ void change_vertex(const Stage& aStage, int v1, int v2){
     }
 }
 
-
-//------------------------------------------------------------------------------
-/// コンストラクタ
-/// @detail 最初のステージ開始前に実行したい処理があればここに書きます
-Answer::Answer()
-{
-    float power = 1.0;
-    for(int i = 0; i < 20; i++){
-        POWER[i] = power;
-        power *= 1.1;
-    }
+/// targetsのv1番目とv2番目を交換し、再計算
+void change_vertex_simple(const Stage& aStage, int v1, int v2){
+    assert(v1 != v2);
+    std::swap(targets[v1], targets[v2]);
 }
 
 /// 2-opt法でTSPを解く (1.404sec)
@@ -850,6 +865,35 @@ void tsp_2opt(const Stage& aStage){
     }
 }
 
+/// 2-opt法でTSPを解く (1.404sec)
+void tsp_2opt_simple(const Stage& aStage){
+    const int nscrolls = aStage.scrolls().count();
+    if(nscrolls > 1){
+        float nstep = path_length_from_dijkstra(aStage);
+        while(1){
+            bool update = false;
+            for(int i = 0; i < nscrolls; i++){
+                for(int j = i+1; j < nscrolls; j++){
+                    change_vertex_simple(aStage, i, j);
+                    float new_nstep = path_length_from_dijkstra(aStage);
+                    if(new_nstep < nstep){
+                        nstep = new_nstep;
+                        update = true;
+                    }
+                    else{
+                        change_vertex_simple(aStage, i, j);
+                    }
+                }
+            }
+
+            if(!update)
+                break;
+            //else
+            //    printf("return %d\n", nstep);
+        }
+    }
+}
+
 unsigned int randxor()
 {
     static unsigned int x=123456789,y=362436069,z=521288629,w=88675123;
@@ -861,7 +905,7 @@ unsigned int randxor()
 void tsp_sa(const Stage& aStage, int iteration){
     const int N = aStage.scrolls().count();
 
-    const double startTemp = 5;
+    const double startTemp = 10;
     const double endTemp = 1;
     const int R = 10000;
     const int T = iteration;
@@ -886,6 +930,49 @@ void tsp_sa(const Stage& aStage, int iteration){
             //TODO : efficeint reverse
             change_vertex(aStage, v1, v2);
         }
+    }
+}
+
+/// SA法でTSPを解く
+void tsp_sa_simple(const Stage& aStage, int iteration){
+    const int N = aStage.scrolls().count();
+
+    const double startTemp = 300;
+    const double endTemp = 3;
+    const int R = 100000;
+    const int T = iteration;
+
+    float nstep = path_length(aStage);
+    for(int t = 0; t < iteration; t++){
+        int v1 = randxor() % N, v2 = randxor() % N;
+        while(v1 == v2)
+            v1 = randxor() % N, v2 = randxor() % N;
+
+        change_vertex_simple(aStage, v1, v2);
+        float new_nstep = path_length_from_dijkstra(aStage);
+
+        double temp = startTemp + (endTemp - startTemp) * t / T;
+        double probability = exp((nstep - new_nstep) / temp);
+        bool force_next = probability > (double)(randxor() % R) / R;
+
+        if(new_nstep < nstep || force_next){
+            nstep = new_nstep;
+        }
+        else{
+            change_vertex_simple(aStage, v1, v2);
+        }
+    }
+}
+
+//------------------------------------------------------------------------------
+/// コンストラクタ
+/// @detail 最初のステージ開始前に実行したい処理があればここに書きます
+Answer::Answer()
+{
+    float power = 1.0;
+    for(int i = 0; i < 20; i++){
+        POWER[i] = power;
+        power *= 1.1;
     }
 }
 
@@ -930,13 +1017,47 @@ void Answer::initialize(const Stage& aStage)
     //const int topk = 10;
     //calc_distance_search_topk(aStage, vertices, topk, Theta);
 
-    /// 32318
-    sales_man_init(vertices.size());
-    sales_man_scroll(1 << 0, 0, vertices.size());
-    build_target_sequence();
-    update_path_from_targets(aStage);
-    tsp_2opt(aStage);
+    //sales_man_init(vertices.size());
+    //sales_man_scroll(1 << 0, 0, vertices.size());
+    //build_target_sequence_from_tsp();
+    //update_path_from_targets(aStage);
+    //tsp_2opt(aStage);
 
+    const int nscrolls = aStage.scrolls().count();
+    targets_init(aStage);
+    if(nscrolls >= 11){
+        //sales_man_init(vertices.size());
+        //sales_man_scroll(1 << 0, 0, vertices.size());
+        //build_target_sequence_from_tsp();
+        //update_path_from_targets(aStage);
+    
+        //const int iteration = 500000;
+        const int iteration = 2500000;
+        tsp_sa_simple(aStage, iteration);
+        tsp_2opt_simple(aStage);
+
+        float dist = path_length_from_dijkstra(aStage);
+        std::vector<int> _targets = targets;
+        tsp_2opt(aStage);
+        float new_dist = path_length_from_dijkstra(aStage);
+        if(new_dist > dist)
+            targets = _targets;
+
+    }
+    else{
+        float min_dist = 1e10;
+        std::vector<int> _targets;
+        do{
+            float new_dist = path_length_from_dijkstra(aStage);
+            if(new_dist < min_dist){
+                _targets = targets;
+                min_dist = new_dist;
+            }
+        }while(std::next_permutation(targets.begin(), targets.end()));
+        targets = _targets;
+    }
+    //tsp_2opt(aStage);
+    
     /// sa
     //int nscrolls = aStage.scrolls().count();
     //if(nscrolls >= 8){
@@ -951,7 +1072,7 @@ void Answer::initialize(const Stage& aStage)
     //else{
     //    sales_man_init(vertices.size());
     //    sales_man_scroll(1 << 0, 0, vertices.size());
-    //    build_target_sequence();
+    //    build_target_sequence_from_tsp();
     //    update_path_from_targets(aStage);
     //}
 
