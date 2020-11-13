@@ -861,7 +861,7 @@ unsigned int randxor()
 void tsp_sa(const Stage& aStage, int iteration){
     const int N = aStage.scrolls().count();
 
-    const double startTemp = 10;
+    const double startTemp = 5;
     const double endTemp = 1;
     const int R = 10000;
     const int T = iteration;
@@ -897,9 +897,9 @@ Answer::~Answer()
 }
 
 // for getTragetPos
-Path path;
+//Path path;
 //int path_idx = 0;
-bool big_jump;
+//bool big_jump;
 
 /// TODO : Game Emulation
 /// targets配列の順序をランダムに変えてみる？
@@ -931,32 +931,32 @@ void Answer::initialize(const Stage& aStage)
     //calc_distance_search_topk(aStage, vertices, topk, Theta);
 
     /// 32318
-    //sales_man_init(vertices.size());
-    //sales_man_scroll(1 << 0, 0, vertices.size());
-    //build_target_sequence();
-    //update_path_from_targets(aStage);
-    //tsp_2opt(aStage);
+    sales_man_init(vertices.size());
+    sales_man_scroll(1 << 0, 0, vertices.size());
+    build_target_sequence();
+    update_path_from_targets(aStage);
+    tsp_2opt(aStage);
 
-    int nscrolls = aStage.scrolls().count();
-    if(nscrolls >= 8){
-        targets_init(aStage);
-        update_path_from_targets(aStage);
-        
-        int iteration = 1;
-        iteration = 15000;
-        tsp_sa(aStage, iteration);
+    /// sa
+    //int nscrolls = aStage.scrolls().count();
+    //if(nscrolls >= 8){
+    //    //targets_init(aStage);
+    //    //update_path_from_targets(aStage);
+    //    
+    //    int iteration = 10000;
+    //    tsp_sa(aStage, iteration);
 
-        tsp_2opt(aStage);
-    }
-    else{
-        sales_man_init(vertices.size());
-        sales_man_scroll(1 << 0, 0, vertices.size());
-        build_target_sequence();
-        update_path_from_targets(aStage);
-    }
+    //    tsp_2opt(aStage);
+    //}
+    //else{
+    //    sales_man_init(vertices.size());
+    //    sales_man_scroll(1 << 0, 0, vertices.size());
+    //    build_target_sequence();
+    //    update_path_from_targets(aStage);
+    //}
 
-    path.clear();
-    big_jump = false;
+    //path.clear();
+    //big_jump = false;
 }
 
 //------------------------------------------------------------------------------
@@ -1000,7 +1000,8 @@ Vector2 Answer::getTargetPos(const Stage& aStage)
     auto next = next_path(aStage, path, path_idx, pos, aStage.rabbit().power());
     return next;
 */
-///*
+    //TODO : 池を後の方に回す
+/*
     static int src, dest;
     static int dest_idx;
     static int path_idx;
@@ -1019,60 +1020,59 @@ Vector2 Answer::getTargetPos(const Stage& aStage)
     }
 
     auto next = sequence_simple[src][dest][path_idx++];
-    //{
-    //    auto ra = aStage.rabbit().pos();
-    //    printf("Rabbit : (%f, %f)\n", ra.x, ra.y);
-    //    printf("Next : (%f, %f)\n", next.x, next.y);
-    //    printf("Terrain : %d\n", (int)aStage.terrain(ra));
-    //    int get_num = 0;
-    //    auto scrolls = aStage.scrolls();
-    //    for(auto&& scroll : scrolls){
-    //        if(scroll.isGotten())
-    //            get_num++;
-    //    }
-    //    printf("Num of got scrolls : %d\n", get_num);
-    //}
     return next;
-//*/
-/* //池ポチャ
-    const Vector2 fail = {-1, -1};
-    Vector2 target = fail;
+*/
+    static int path_idx;
+    static Path path;
+    auto pos = aStage.rabbit().pos();
+    if(aStage.turn() == 0 || same(pos, path[path.size()-1])){
+        auto scrolls = aStage.scrolls();
+        for(int i = 0; i < (int)targets.size(); i++){
+            int idx = targets[i];
+            auto scroll = scrolls[idx];
+            if (!scroll.isGotten()) {
+                path.clear();
+                if(i == (int)targets.size()-1)
+                    get_path_from_dijkstra(aStage, path, pos.y, pos.x, -1, idx, -1);
+                else
+                    get_path_from_dijkstra(aStage, path, pos.y, pos.x, -1, idx, -1);
+                path_idx = 0;
+                break;
+            }
+        }
+    }
+
+    Vector2 target;
     Terrain tar_terrain;
     Vector2 pre_point = pos;
     Terrain pre_terrain = aStage.terrain(pre_point);
-    //bool selected = false;
-
-    for(int i = (int)path.size()-1; i >= path_idx; i--){
-        auto tmp = path[i];
-        if(same(pos, tmp)){
-            path_idx = i;
-            break;
-        }
-    }
-
-    if(same_float(pos, path[path_idx]))
-        path_idx++;
-
-    for(int k = 0; k < 5; k++){
-        if(path_idx + k >= (int)path.size()){
-            //selected = true;
-            break;
-        }
-        target = path[path_idx + k];
+    bool first = true;
+    while(1){
+        target = path[path_idx];
         tar_terrain = aStage.terrain(target);
-        if((k > 0 && tar_terrain > pre_terrain){
+ 
+        auto next = aStage.getNextPos(pos, aStage.rabbit().power(), target);
+        auto nex_terrain = aStage.terrain(next);
+ 
+        if(!first && tar_terrain > pre_terrain){
+            /// TODO:pre_pointがrabbit.pos()の場合を除く。
             target = pre_point;
-            //selected = true;
             break;
         }
+        else if(path_idx+1 < (int)path.size() && same_float(target, next)){
+            path_idx++;
+        }
+        else{
+            if(nex_terrain == tar_terrain)
+                target = next;
+            break;
+        }
+ 
         pre_point = target;
         pre_terrain = tar_terrain;
+        first = false;
     }
-
-    if(same_float(fail, target))
-        target = path[path.size()-1];
     return target;
-*/
 }
 
 //------------------------------------------------------------------------------
