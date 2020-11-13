@@ -63,6 +63,7 @@ void build_target_sequence_from_tsp();
 void make_graph(const Stage& aStage);
 bool same_float(Vector2 v1, Vector2 v2);
 bool same(Vector2 v1, Vector2 v2);
+int get_terrain_weight(const Stage& aStage, Vector2 pos);
 
 unsigned int randxor();
 void get_path_from_dijkstra(const Stage& aStage, Path& path, int y1, int x1, int src, int dest, int dest2);
@@ -90,6 +91,7 @@ void change_vertex_simple(const Stage& aStage, int v1, int v2);
 void tsp_2opt(const Stage& aStage);
 /// 2-opt法でTSPを解く (1.404sec)
 void tsp_2opt_simple(const Stage& aStage);
+Vector2 MygetTargetPos(const Stage& aStage);
 
 
 ////////////////////////////////////////////////////////////////////////
@@ -107,67 +109,34 @@ class EmulateGame{
             int current_turn = 0;
             while (!stage.isEnd() && stage.turn() < Parameter::GameTurnLimit && !stage.isOutOfBounds(stage.rabbit().pos())) {
                 // ターン開始
-                auto targetPos = getTargetPos(stage);
+                auto targetPos = MygetTargetPos(stage);
                 stage.update(targetPos);
                 stage.advanceTurn();
                 current_turn++;
             }
             return current_turn;
         }
-
-        Vector2 getTargetPos(const Stage& aStage){
-            static int path_idx;
-            static Path path;
-            auto pos = aStage.rabbit().pos();
-            if(aStage.turn() == 0 || same(pos, path[path.size()-1])){
-                auto scrolls = aStage.scrolls();
-                for(int i = 0; i < (int)targets.size(); i++){
-                    int idx = targets[i];
-                    auto scroll = scrolls[idx];
-                    if (!scroll.isGotten()) {
-                        path.clear();
-                        if(i == (int)targets.size()-1)
-                            get_path_from_dijkstra(aStage, path, pos.y, pos.x, -1, idx, -1);
-                        else
-                            get_path_from_dijkstra(aStage, path, pos.y, pos.x, -1, idx, -1);
-                        path_idx = 0;
-                        break;
-                    }
-                }
-            }
-
-            Vector2 target;
-            Terrain tar_terrain;
-            Vector2 pre_point = pos;
-            Terrain pre_terrain = aStage.terrain(pre_point);
-            bool first = true;
-            while(1){
-                target = path[path_idx];
-                tar_terrain = aStage.terrain(target);
-
-                auto next = aStage.getNextPos(pos, aStage.rabbit().power(), target);
-                auto nex_terrain = aStage.terrain(next);
-
-                if(!first && tar_terrain > pre_terrain){
-                    target = pre_point;
-                    break;
-                }
-                else if(path_idx+1 < (int)path.size() && same_float(target, next)){
-                    path_idx++;
-                }
-                else{
-                    if(nex_terrain == tar_terrain)
-                        target = next;
-                    break;
-                }
-
-                pre_point = target;
-                pre_terrain = tar_terrain;
-                first = false;
-            }
-            return target;
-        }
 };
+
+
+int get_terrain_weight(const Stage& aStage, Vector2 pos){
+    int weight = 0;
+    auto terrain = aStage.terrain(pos);
+    if(terrain == Terrain::Plain)
+        //weight = 3;
+        weight = 6;
+    else if(terrain == Terrain::Bush)
+        //weight = 5;
+        weight = 10;
+    else if(terrain == Terrain::Sand)
+        //weight = 10;
+        weight = 20;
+    else if(terrain == Terrain::Pond)
+        //weight = 30;
+        //weight = 60;
+        weight = 60;
+    return weight;
+}
 
 /// v1, v2間の直線距離
 double dist(Vector2 v1, Vector2 v2){
@@ -441,16 +410,7 @@ void make_graph(const Stage& aStage){
     for(int y = 0; y < Parameter::StageHeight; y++){
         for(int x = 0; x < Parameter::StageWidth; x++){
             Graph[y][x].clear();
-            auto terrain = aStage.terrain(Vector2{(float)x, (float)y});
-            int weight = 100000;
-            if(terrain == Terrain::Plain)
-                weight = 3;
-            else if(terrain == Terrain::Bush)
-                weight = 5;
-            else if(terrain == Terrain::Sand)
-                weight = 10;
-            else if(terrain == Terrain::Pond)
-                weight = 30;
+            int weight = get_terrain_weight(aStage, Vector2{(float)x, (float)y}); 
 
             const int dx[] = {-1, 1, 0, 0};
             const int dy[] = {0, 0, 1, -1};
@@ -460,7 +420,12 @@ void make_graph(const Stage& aStage){
                 if(ny < 0 || nx < 0) continue;
                 if(ny >= Parameter::StageHeight) continue;
                 if(nx >= Parameter::StageWidth) continue;
-                Graph[y][x].push_back(Edge{ny, nx, weight});
+
+                // TODO : expriment
+                int new_weight = weight + get_terrain_weight(aStage, Vector2{(float)nx, (float)ny});
+                
+                //Graph[y][x].push_back(Edge{ny, nx, weight});
+                Graph[y][x].push_back(Edge{ny, nx, new_weight});
             }
         }
     }
@@ -551,16 +516,11 @@ void get_path_from_dijkstra(const Stage& aStage, Path& path, int y1, int x1, int
             //Graph[y][x].push_back(Edge{ny, nx, weight});
             int nd = dist_scroll[dest][ny][nx];
 
-            auto terrain = aStage.terrain(Vector2{(float)nx, (float)ny});
-            int weight = 100000;
-            if(terrain == Terrain::Plain)
-                weight = 3;
-            else if(terrain == Terrain::Bush)
-                weight = 5;
-            else if(terrain == Terrain::Sand)
-                weight = 10;
-            else if(terrain == Terrain::Pond)
-                weight = 30;
+            int weight = get_terrain_weight(aStage, Vector2{(float)nx, (float)ny});
+
+            //TODO : experiment
+            weight += get_terrain_weight(aStage, Vector2{(float)x, (float)y});
+
             if(nd + weight == d){
                 float tx = x + 0.5, ty = y + 0.5;
                 if(nd == 0){
@@ -628,16 +588,11 @@ void get_path_from_dijkstra_simple(const Stage& aStage, Path& path, int y1, int 
             //Graph[y][x].push_back(Edge{ny, nx, weight});
             int nd = dist_scroll[dest][ny][nx];
 
-            auto terrain = aStage.terrain(Vector2{(float)nx, (float)ny});
-            int weight = 100000;
-            if(terrain == Terrain::Plain)
-                weight = 3;
-            else if(terrain == Terrain::Bush)
-                weight = 5;
-            else if(terrain == Terrain::Sand)
-                weight = 10;
-            else if(terrain == Terrain::Pond)
-                weight = 30;
+            int weight = get_terrain_weight(aStage, Vector2{(float)nx, (float)ny});
+
+            //TODO : experiment
+            weight += get_terrain_weight(aStage, Vector2{(float)x, (float)y});
+
             if(nd + weight == d){
                 d = nd, y = ny, x = nx;
                 break;
@@ -966,6 +921,60 @@ void tsp_sa_simple(const Stage& aStage, int iteration){
     }
 }
 
+Vector2 MygetTargetPos(const Stage& aStage){
+    static int path_idx;
+    static Path path;
+    auto pos = aStage.rabbit().pos();
+    if(aStage.turn() == 0 || same(pos, path[path.size()-1])){
+        auto scrolls = aStage.scrolls();
+        for(int i = 0; i < (int)targets.size(); i++){
+            int idx = targets[i];
+            auto scroll = scrolls[idx];
+            if (!scroll.isGotten()) {
+                path.clear();
+                if(i == (int)targets.size()-1)
+                    get_path_from_dijkstra(aStage, path, pos.y, pos.x, -1, idx, -1);
+                else
+                    get_path_from_dijkstra(aStage, path, pos.y, pos.x, -1, idx, -1);
+                path_idx = 0;
+                break;
+            }
+        }
+    }
+
+    Vector2 target;
+    Terrain tar_terrain;
+    Vector2 pre_point = pos;
+    Terrain pre_terrain = aStage.terrain(pre_point);
+    bool first = true;
+    while(1){
+        target = path[path_idx];
+        tar_terrain = aStage.terrain(target);
+
+        auto next = aStage.getNextPos(pos, aStage.rabbit().power(), target);
+        auto nex_terrain = aStage.terrain(next);
+
+        if(!first && tar_terrain > pre_terrain){
+            target = pre_point;
+            break;
+        }
+        else if(path_idx+1 < (int)path.size() && same_float(target, next)){
+            path_idx++;
+        }
+        else{
+            if(nex_terrain == tar_terrain)
+                target = next;
+            break;
+        }
+
+        pre_point = target;
+        pre_terrain = tar_terrain;
+        first = false;
+    }
+    return target;
+}
+
+
 //------------------------------------------------------------------------------
 /// コンストラクタ
 /// @detail 最初のステージ開始前に実行したい処理があればここに書きます
@@ -1034,9 +1043,12 @@ void Answer::initialize(const Stage& aStage)
         //update_path_from_targets(aStage);
     
         //const int iteration = 2500000;
+        //const int iteration = 50000;
+        // 十分っぽい
         const int iteration = 50000;
         std::vector<int> best_targets;
         int best_score = 100000;
+        //const int nloop = (nscrolls < 8) ? 10 : 30;
         const int nloop = (nscrolls < 8) ? 10 : 30;
         for(int i = 0; i < nloop; i++){
             targets_shuffle(aStage);
@@ -1085,6 +1097,7 @@ void Answer::initialize(const Stage& aStage)
 /// @return 移動の目標座標
 Vector2 Answer::getTargetPos(const Stage& aStage)
 {
+    return MygetTargetPos(aStage);
 /*
     auto pos = aStage.rabbit().pos();
     for(auto scroll : aStage.scrolls()) {
@@ -1141,6 +1154,7 @@ Vector2 Answer::getTargetPos(const Stage& aStage)
     auto next = sequence_simple[src][dest][path_idx++];
     return next;
 */
+/*
     static int path_idx;
     static Path path;
     auto pos = aStage.rabbit().pos();
@@ -1192,6 +1206,7 @@ Vector2 Answer::getTargetPos(const Stage& aStage)
         first = false;
     }
     return target;
+*/
 }
 
 //------------------------------------------------------------------------------
