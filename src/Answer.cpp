@@ -17,35 +17,6 @@
 #include <cassert>
 #include <random>
 
-template<typename T>
-void hash_combine(size_t & seed, T const& v) {
-    //基本型に関するハッシュ生成は標準ライブラリが提供している
-    std::hash<T> primitive_type_hash;
-
-    //生成したハッシュを合成する。このコードはboostものを使用する
-    seed ^= primitive_type_hash(v) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
-}
-
-namespace hpc {
-bool operator==(const Vector2& lhs, const Vector2& rhs){
-    return lhs.x == rhs.x && lhs.y == rhs.y;
-}
-}
-
-namespace std {
-template<>
-class hash<hpc::Vector2>{
-    public:
-        size_t operator()(const hpc::Vector2& data) const {
-            std::size_t seed = 0;
-            hash_combine(seed, data.x);
-            hash_combine(seed, data.y);
-
-            return seed;
-        }
-};
-}
-
 //------------------------------------------------------------------------------
 namespace hpc {
 
@@ -89,13 +60,114 @@ void sales_man_init(int size);
 double sales_man(int S, int v, int size);
 void vertices_init(Ver& vertices, const Stage& aStage);
 void build_target_sequence_from_tsp();
-Path get_path_opt(const Stage& aStage, Vector2 v1, Vector2 v2, int top_k, const std::vector<double>& Theta);
 void make_graph(const Stage& aStage);
 bool same_float(Vector2 v1, Vector2 v2);
 bool same(Vector2 v1, Vector2 v2);
 
+unsigned int randxor();
+void get_path_from_dijkstra(const Stage& aStage, Path& path, int y1, int x1, int src, int dest, int dest2);
+/// ;y1, x1} から scrolls[dest] までの経路を復元. 実装を簡単にするため、目標値はすべてマスの中心にする
+void get_path_from_dijkstra_simple(const Stage& aStage, Path& path, int y1, int x1, int src, int dest, int dest2);
+/// ウサギが次にジャンプすべき座標を計算
+Vector2 next_path(const Stage& aStage, Path path, int& path_idx, Vector2 cur_pos, float power);
+/// dijkstra_pathを全点間で作成
+void build_all_dijkstra_path(const Stage& aStage);
+// v1 -> v2 へのウサギの通る座標(sequence_simple)を更新
+void update_path_simple(const Stage& aStage, int v1, int v2, float power);
+/// targets配列の初期化 & 
+void targets_init(const Stage& aStage);
+/// targetsからpathをupdate
+void update_path_from_targets(const Stage& aStage);
+/// 終了までに要するターン数を計算
+int path_length(const Stage& aStage);
+/// 終了までに要するターン数を計算
+float path_length_from_dijkstra(const Stage& aStage);
+/// targetsのv1番目とv2番目を交換し、再計算
+void change_vertex(const Stage& aStage, int v1, int v2);
+/// targetsのv1番目とv2番目を交換し、再計算
+void change_vertex_simple(const Stage& aStage, int v1, int v2);
+/// 2-opt法でTSPを解く (1.404sec)
+void tsp_2opt(const Stage& aStage);
+/// 2-opt法でTSPを解く (1.404sec)
+void tsp_2opt_simple(const Stage& aStage);
+
 
 ////////////////////////////////////////////////////////////////////////
+
+class EmulateGame{
+    private:
+        Stage stage;
+
+    public:
+        EmulateGame(const Stage& aStage){
+            stage = aStage;
+        }
+
+        int run(){
+            int current_turn = 0;
+            while (!stage.isEnd() && stage.turn() < Parameter::GameTurnLimit && !stage.isOutOfBounds(stage.rabbit().pos())) {
+                // ターン開始
+                auto targetPos = getTargetPos(stage);
+                stage.update(targetPos);
+                stage.advanceTurn();
+                current_turn++;
+            }
+            return current_turn;
+        }
+
+        Vector2 getTargetPos(const Stage& aStage){
+            static int path_idx;
+            static Path path;
+            auto pos = aStage.rabbit().pos();
+            if(aStage.turn() == 0 || same(pos, path[path.size()-1])){
+                auto scrolls = aStage.scrolls();
+                for(int i = 0; i < (int)targets.size(); i++){
+                    int idx = targets[i];
+                    auto scroll = scrolls[idx];
+                    if (!scroll.isGotten()) {
+                        path.clear();
+                        if(i == (int)targets.size()-1)
+                            get_path_from_dijkstra(aStage, path, pos.y, pos.x, -1, idx, -1);
+                        else
+                            get_path_from_dijkstra(aStage, path, pos.y, pos.x, -1, idx, -1);
+                        path_idx = 0;
+                        break;
+                    }
+                }
+            }
+
+            Vector2 target;
+            Terrain tar_terrain;
+            Vector2 pre_point = pos;
+            Terrain pre_terrain = aStage.terrain(pre_point);
+            bool first = true;
+            while(1){
+                target = path[path_idx];
+                tar_terrain = aStage.terrain(target);
+
+                auto next = aStage.getNextPos(pos, aStage.rabbit().power(), target);
+                auto nex_terrain = aStage.terrain(next);
+
+                if(!first && tar_terrain > pre_terrain){
+                    target = pre_point;
+                    break;
+                }
+                else if(path_idx+1 < (int)path.size() && same_float(target, next)){
+                    path_idx++;
+                }
+                else{
+                    if(nex_terrain == tar_terrain)
+                        target = next;
+                    break;
+                }
+
+                pre_point = target;
+                pre_terrain = tar_terrain;
+                first = false;
+            }
+            return target;
+        }
+};
 
 /// v1, v2間の直線距離
 double dist(Vector2 v1, Vector2 v2){
@@ -204,63 +276,6 @@ class Vector2Compare{
         bool operator()(const Vector2& a, const Vector2& b){return (a.x == b.x) ? a.y < b.y : a.x < b.x;};
 };
 
-/// v1, v2間の移動にかかるターン数が最小となるパス
-Path get_path_opt(const Stage& aStage, Vector2 v1, Vector2 v2, int top_k, const std::vector<double>& Theta){
-    std::priority_queue<P_dist, std::vector<P_dist>, Comp_P_dist> que;
-    que.push(P_dist(dist(v1, v2), v1));
-    // 前回の座標値を記録
-    //std::map<Vector2, Vector2, Vector2Compare> pre_pos;
-    //std::unordered_map<MyVector2, Vector2, MyVector2::Hash> pre_pos;
-    std::unordered_map<Vector2, Vector2> pre_pos;
-    Vector2 last;
-    while(1){
-        Ver pos_array;
-        bool finish = false;
-        while(!que.empty() && (int)pos_array.size() < top_k){
-            auto x = que.top(); que.pop();
-            pos_array.push_back(x.second);
-            //TODO : check validity
-            //if(x.first < EPS){
-            auto pos = x.second;
-            if((int)pos.x == (int)v2.x && (int)pos.y == (int)v2.y){
-                //printf("Found : turn = %d\n", turn);
-                last = x.second;
-                finish = true;
-                break;
-            }
-        }
-
-        if(finish)
-            break;
-
-        //TODO : need this??
-        queue_clear<decltype(que)>(que);
-        for(auto v : pos_array){
-            for(auto theta : Theta){
-                // +theta, -thetaの両方を行う
-                int nloop = (theta == 0) ? 1 : 2;
-                for(int i = 0; i < nloop; i++){
-                    theta = (i == 0) ? theta : -theta;
-                    auto target = calc_point_rot(v, v2, theta);
-                    auto nv = aStage.getNextPos(v, aStage.rabbit().power(), target);
-                    if(pre_pos.find(nv) != pre_pos.end()){
-                        //printf("Found!!\n");
-                        continue;
-                    }
-                    que.push(P_dist(dist(nv, v2), nv));
-                    pre_pos[nv] = v;
-                }
-            }
-        }
-    }
-    Path path;
-    while(!(last.x == v1.x && last.y == v1.y)){
-        path.push_back(last);
-        last = pre_pos[last];
-    }
-    reverse(path.begin(), path.end());
-    return path;
-}
 
 /// 各点間をINFに初期化
 void distance_init(const Stage& aStage){
@@ -708,31 +723,6 @@ void build_all_dijkstra_path(const Stage& aStage){
     }
 }
 
-// v1 -> v2 へのウサギの通る座標(sequence)を更新
-// TODO : 接続は意識しなくても大丈夫?
-// TODO : sequenceを方角毎におこなう。 <- dijkstraの目標位置と一致すべき
-//void update_path(const Stage& aStage, int v1, int v2, float power){
-//    auto scrolls = aStage.scrolls();
-//    auto dest = scrolls[v2-1].pos();
-//
-//    const float dx[] = {0, (float)(0.5-EPS), 0, -0.5};
-//    const float dy[] = {(float)(0.5-EPS), 0, -0.5, 0};
-//    for(int i = 0; i < 4; i++){
-//        if(v1 == 0 && i > 0) return;
-//        auto pos = (v1 == 0) ? aStage.rabbit().pos() : scrolls[v1-1].pos();
-//        pos.x += dx[i], pos.y += dy[i];
-//        int path_idx = 0;
-//        sequence[i][v1][v2].clear();
-//        while(1){
-//            auto target = next_path(aStage, dijkstra_path[v1][v2], path_idx, pos, power);
-//            pos = aStage.getNextPos(pos, power, target);
-//            sequence[i][v1][v2].push_back(pos);
-//            if(same(pos, dest))
-//                break;
-//        }
-//    }
-//}
-
 // v1 -> v2 へのウサギの通る座標(sequence_simple)を更新
 void update_path_simple(const Stage& aStage, int v1, int v2, float power){
     auto scrolls = aStage.scrolls();
@@ -757,6 +747,14 @@ void targets_init(const Stage& aStage){
     targets.resize(nscrolls);
     for(int i = 0; i < nscrolls; i++) 
         targets[i] = i;
+}
+
+void targets_shuffle(const Stage& aStage){
+    const int nscrolls = aStage.scrolls().count();
+    for(int i = 0; i < nscrolls; i++){
+        int j = randxor() % nscrolls;
+        std::swap(targets[i], targets[j]);
+    }
 }
 
 /// targetsからpathをupdate
@@ -896,9 +894,13 @@ void tsp_2opt_simple(const Stage& aStage){
 
 unsigned int randxor()
 {
-    static unsigned int x=123456789,y=362436069,z=521288629,w=88675123;
+    static unsigned int x=123456789, y=362436069, z=521288629, w=88675123;
     unsigned int t;
-    t=(x^(x<<11));x=y;y=z;z=w; return( w=(w^(w>>19))^(t^(t>>8)) );
+    t = (x^(x<<11));
+    x = y;
+    y = z;
+    z = w; 
+    return( w=(w^(w>>19))^(t^(t>>8)) );
 }
 
 /// SA法でTSPを解く
@@ -937,8 +939,8 @@ void tsp_sa(const Stage& aStage, int iteration){
 void tsp_sa_simple(const Stage& aStage, int iteration){
     const int N = aStage.scrolls().count();
 
-    const double startTemp = 300;
-    const double endTemp = 3;
+    const double startTemp = 100;
+    const double endTemp = 1;
     const int R = 100000;
     const int T = iteration;
 
@@ -1025,23 +1027,41 @@ void Answer::initialize(const Stage& aStage)
 
     const int nscrolls = aStage.scrolls().count();
     targets_init(aStage);
-    if(nscrolls >= 11){
+    if(nscrolls >= 3){
         //sales_man_init(vertices.size());
         //sales_man_scroll(1 << 0, 0, vertices.size());
         //build_target_sequence_from_tsp();
         //update_path_from_targets(aStage);
     
-        //const int iteration = 500000;
-        const int iteration = 2500000;
-        tsp_sa_simple(aStage, iteration);
-        tsp_2opt_simple(aStage);
+        //const int iteration = 2500000;
+        const int iteration = 50000;
+        std::vector<int> best_targets;
+        int best_score = 100000;
+        const int nloop = (nscrolls < 8) ? 10 : 30;
+        for(int i = 0; i < nloop; i++){
+            targets_shuffle(aStage);
 
-        float dist = path_length_from_dijkstra(aStage);
-        std::vector<int> _targets = targets;
-        tsp_2opt(aStage);
-        float new_dist = path_length_from_dijkstra(aStage);
-        if(new_dist > dist)
-            targets = _targets;
+            tsp_sa_simple(aStage, iteration);
+            tsp_2opt_simple(aStage);
+
+            float dist = path_length_from_dijkstra(aStage);
+            std::vector<int> _targets = targets;
+            tsp_2opt(aStage);
+            float new_dist = path_length_from_dijkstra(aStage);
+            if(new_dist > dist)
+                targets = _targets;
+
+            //TODO : test
+            EmulateGame eGame(aStage);
+            int score = eGame.run();
+            if(score < best_score){
+                best_score = score;
+                best_targets = targets;
+            }
+        }
+
+        // TODO : efficient targets copy
+        targets = best_targets;
 
     }
     else{
@@ -1056,28 +1076,6 @@ void Answer::initialize(const Stage& aStage)
         }while(std::next_permutation(targets.begin(), targets.end()));
         targets = _targets;
     }
-    //tsp_2opt(aStage);
-    
-    /// sa
-    //int nscrolls = aStage.scrolls().count();
-    //if(nscrolls >= 8){
-    //    //targets_init(aStage);
-    //    //update_path_from_targets(aStage);
-    //    
-    //    int iteration = 10000;
-    //    tsp_sa(aStage, iteration);
-
-    //    tsp_2opt(aStage);
-    //}
-    //else{
-    //    sales_man_init(vertices.size());
-    //    sales_man_scroll(1 << 0, 0, vertices.size());
-    //    build_target_sequence_from_tsp();
-    //    update_path_from_targets(aStage);
-    //}
-
-    //path.clear();
-    //big_jump = false;
 }
 
 //------------------------------------------------------------------------------
@@ -1204,6 +1202,8 @@ void Answer::finalize(const Stage& aStage)
 {
     targets.clear();
 }
+
+
 
 } // namespace
 // EOF
