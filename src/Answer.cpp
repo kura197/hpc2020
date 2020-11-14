@@ -1143,7 +1143,7 @@ Vector2 Answer03(const Stage& aStage){
 
 }
 
-Vector2 Answer04(const Stage& aStage){
+Vector2 Answer04(const Stage& aStage, int postk){
     static int path_idx;
     static Path path;
     auto pos = aStage.rabbit().pos();
@@ -1174,7 +1174,7 @@ Vector2 Answer04(const Stage& aStage){
 
     // large postk --> good for small num of vertices ??
     // small postk --> good for large num of vertices ?? 
-    const int postk = 5;
+    //const int postk = 5;
     auto p = std::make_pair((int)pos.x, (int)pos.y);
     static Vector2 checkpoint;
     if(coord2idx.find(p) == coord2idx.end()){
@@ -1223,10 +1223,29 @@ Vector2 Answer04(const Stage& aStage){
 
 /// 次の地点
 Vector2 MygetTargetPos(const Stage& aStage, int n){
-    if(n == 1)
+    assert(0 <= n && n <= 9);
+    if(n == 0)
         return Answer01(aStage);
+    else if(n == 1)
+        return Answer04(aStage, 3);
+    else if(n == 2)
+        return Answer04(aStage, 5);
+    else if(n == 3)
+        return Answer04(aStage, 8);
+    else if(n == 4)
+        return Answer04(aStage, 12);
+    else if(n == 5)
+        return Answer04(aStage, 2);
+    else if(n == 6)
+        return Answer04(aStage, 4);
+    else if(n == 7)
+        return Answer04(aStage, 6);
+    else if(n == 8)
+        return Answer04(aStage, 10);
+    else if(n == 9)
+        return Answer04(aStage, 14);
     else
-        return Answer04(aStage);
+        return Answer01(aStage);
 }
 
 
@@ -1302,11 +1321,17 @@ void Answer::initialize(const Stage& aStage)
     
         //const int iteration = 2500000;
         // 十分っぽい
+        //// 28049
+        //const int iteration = 500000;
+        //// 28060
         const int iteration = 50000;
         std::vector<int> best_targets;
         int best_score = 100000;
         //const int nloop = (nscrolls < 8) ? 1 : 1;
+        //// 28060
         const int nloop = (nscrolls < 8) ? 10 : 30;
+        //// 28012
+        //const int nloop = (nscrolls < 8) ? 30 : 90;
         for(int i = 0; i < nloop; i++){
             targets_shuffle(aStage);
 
@@ -1322,21 +1347,24 @@ void Answer::initialize(const Stage& aStage)
                 targets = _targets;
 
             //TODO : test
-            EmulateGame eGame(aStage);
-            int score = eGame.run(1);
-            if(score < best_score){
-                best_score = score;
-                best_targets = targets;
-                answer = 1;
+            //for(int k = 0; k < 5; k++){
+            for(int k = 0; k < 10; k++){
+                EmulateGame eGame(aStage);
+                int score = eGame.run(k);
+                if(score < best_score){
+                    best_score = score;
+                    best_targets = targets;
+                    answer = k;
+                }
             }
             
-            eGame.init(aStage);
-            score = eGame.run(4);
-            if(score < best_score){
-                best_score = score;
-                best_targets = targets;
-                answer = 4;
-            }
+            //eGame.init(aStage);
+            //score = eGame.run(4);
+            //if(score < best_score){
+            //    best_score = score;
+            //    best_targets = targets;
+            //    answer = 4;
+            //}
         }
 
         // TODO : efficient targets copy
