@@ -496,6 +496,7 @@ int get_direction(Vector2 src, Vector2 dest){
 /// TODO : 最後の地点の設定
 Vector2 first_step[MAX_V];
 void get_path_from_dijkstra(const Stage& aStage, Path& path, int y1, int x1, int src, int dest, int dest2, bool insert_first, bool init_dir){
+    assert(src == -1);
     //TODO : 最初の地点を保存？
     int d = dist_scroll[dest][y1][x1];
     auto target = aStage.scrolls()[dest].pos();
@@ -535,9 +536,33 @@ void get_path_from_dijkstra(const Stage& aStage, Path& path, int y1, int x1, int
                         ty = ((1+EPS)*(ny+0.5) + (y+0.5)) / (2. + EPS);
                     }
                     else{
-                        auto next_step = first_step[dest2];
-                        tx = ((1+EPS)*(nx+0.5) + (next_step.x+0.5)) / (2. + EPS);
-                        ty = ((1+EPS)*(ny+0.5) + (next_step.y+0.5)) / (2. + EPS);
+                        //auto next_step = first_step[dest2];
+                        //tx = ((1+EPS)*(nx+0.5) + (next_step.x+0.5)) / (2. + EPS);
+                        //ty = ((1+EPS)*(ny+0.5) + (next_step.y+0.5)) / (2. + EPS);
+
+                        //// dest から dest2の方向の隅を最終到着点に設定
+                        auto nex_target = aStage.scrolls()[dest2].pos();
+                        int dir = get_direction(target, nex_target);
+                        // upper-right
+                        if(dir == 0){
+                            tx = nx + 1 - EPS; 
+                            ty = ny + 1 - EPS; 
+                        }
+                        // upper-left
+                        else if(dir == 1){
+                            tx = nx; 
+                            ty = ny + 1 - EPS; 
+                        }
+                        // lower-left
+                        else if(dir == 2){
+                            tx = nx;
+                            ty = ny;
+                        }
+                        // lower-right
+                        else{
+                            tx = nx + 1 - EPS;
+                            ty = ny;
+                        }
                     }
                 }else{
                     auto ter_org = aStage.terrain(Vector2{x+EPS, y+EPS});
@@ -942,10 +967,13 @@ Vector2 Answer01(const Stage& aStage, bool path_init_dir){
             auto scroll = scrolls[idx];
             if (!scroll.isGotten()) {
                 path.clear();
+                int nex_dest = (i+1 < (int)targets.size()) ? targets[i+1] : -1;
                 if(i == (int)targets.size()-1)
-                    get_path_from_dijkstra(aStage, path, pos.y, pos.x, -1, idx, -1, false, path_init_dir);
+                    //get_path_from_dijkstra(aStage, path, pos.y, pos.x, -1, idx, -1, false, path_init_dir);
+                    get_path_from_dijkstra(aStage, path, pos.y, pos.x, -1, idx, nex_dest, false, path_init_dir);
                 else
-                    get_path_from_dijkstra(aStage, path, pos.y, pos.x, -1, idx, -1, false, path_init_dir);
+                    //get_path_from_dijkstra(aStage, path, pos.y, pos.x, -1, idx, -1, false, path_init_dir);
+                    get_path_from_dijkstra(aStage, path, pos.y, pos.x, -1, idx, nex_dest, false, path_init_dir);
                 path_idx = 0;
                 break;
             }
@@ -1160,10 +1188,11 @@ Vector2 Answer04(const Stage& aStage, int postk, bool path_init_dir){
             auto scroll = scrolls[idx];
             if (!scroll.isGotten()) {
                 path.clear();
+                int nex_dest = (i+1 < (int)targets.size()) ? targets[i+1] : -1;
                 if(i == (int)targets.size()-1)
-                    get_path_from_dijkstra(aStage, path, pos.y, pos.x, -1, idx, -1, true, path_init_dir);
+                    get_path_from_dijkstra(aStage, path, pos.y, pos.x, -1, idx, nex_dest, true, path_init_dir);
                 else
-                    get_path_from_dijkstra(aStage, path, pos.y, pos.x, -1, idx, -1, true, path_init_dir);
+                    get_path_from_dijkstra(aStage, path, pos.y, pos.x, -1, idx, nex_dest, true, path_init_dir);
                 path_idx = 0;
                 jump = false;
                 coord2idx.clear();
@@ -1237,10 +1266,11 @@ Vector2 Answer05(const Stage& aStage, bool path_init_dir){
             auto scroll = scrolls[idx];
             if (!scroll.isGotten()) {
                 path.clear();
+                int nex_dest = (i+1 < (int)targets.size()) ? targets[i+1] : -1;
                 if(i == (int)targets.size()-1)
-                    get_path_from_dijkstra(aStage, path, pos.y, pos.x, -1, idx, -1, false, path_init_dir);
+                    get_path_from_dijkstra(aStage, path, pos.y, pos.x, -1, idx, nex_dest, false, path_init_dir);
                 else
-                    get_path_from_dijkstra(aStage, path, pos.y, pos.x, -1, idx, -1, false, path_init_dir);
+                    get_path_from_dijkstra(aStage, path, pos.y, pos.x, -1, idx, nex_dest, false, path_init_dir);
                 path_idx = 0;
                 break;
             }
@@ -1281,6 +1311,7 @@ Vector2 Answer05(const Stage& aStage, bool path_init_dir){
 
 /// 次の地点
 #define NANSWER 16
+//#define NANSWER 1
 Vector2 MygetTargetPos(const Stage& aStage, int n){
     assert(0 <= n && n < NANSWER);
     if(n == 0)
