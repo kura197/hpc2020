@@ -66,7 +66,7 @@ bool same(Vector2 v1, Vector2 v2);
 int get_terrain_weight(const Stage& aStage, Vector2 pos);
 
 unsigned int randxor();
-void get_path_from_dijkstra(const Stage& aStage, Path& path, int y1, int x1, int src, int dest, int dest2, bool insert_first, bool init_dir);
+void get_path_from_dijkstra(const Stage& aStage, Path& path, int y1, int x1, int src, int dest, int dest2, bool insert_first, bool init_dir, bool set_dest_center);
 /// ;y1, x1} から scrolls[dest] までの経路を復元. 実装を簡単にするため、目標値はすべてマスの中心にする
 void get_path_from_dijkstra_simple(const Stage& aStage, Path& path, int y1, int x1, int src, int dest, int dest2);
 /// ウサギが次にジャンプすべき座標を計算
@@ -495,7 +495,7 @@ int get_direction(Vector2 src, Vector2 dest){
 /// TODO : 何らかのパラメータでアンサンブル
 /// TODO : 最後の地点の設定
 Vector2 first_step[MAX_V];
-void get_path_from_dijkstra(const Stage& aStage, Path& path, int y1, int x1, int src, int dest, int dest2, bool insert_first, bool init_dir){
+void get_path_from_dijkstra(const Stage& aStage, Path& path, int y1, int x1, int src, int dest, int dest2, bool insert_first, bool init_dir, bool set_dest_center){
     assert(src == -1);
     //TODO : 最初の地点を保存？
     int d = dist_scroll[dest][y1][x1];
@@ -534,11 +534,20 @@ void get_path_from_dijkstra(const Stage& aStage, Path& path, int y1, int x1, int
                     if(dest2 < 0){
                         tx = ((1+EPS)*(nx+0.5) + (x+0.5)) / (2. + EPS);
                         ty = ((1+EPS)*(ny+0.5) + (y+0.5)) / (2. + EPS);
+                        path.push_back(Vector2{tx, ty});
+                        d = nd, y = ny, x = nx;
+                        break;
                     }
                     else{
-                        //auto next_step = first_step[dest2];
-                        //tx = ((1+EPS)*(nx+0.5) + (next_step.x+0.5)) / (2. + EPS);
-                        //ty = ((1+EPS)*(ny+0.5) + (next_step.y+0.5)) / (2. + EPS);
+                        tx = ((1+EPS)*(nx+0.5) + (x+0.5)) / (2. + EPS);
+                        ty = ((1+EPS)*(ny+0.5) + (y+0.5)) / (2. + EPS);
+                        path.push_back(Vector2{tx, ty});
+
+                        if(set_dest_center){
+                            tx = (x + nx + 1) / 2.0;
+                            ty = (y + ny + 1) / 2.0;
+                            path.push_back(Vector2{tx, ty});
+                        }
 
                         //// dest から dest2の方向の隅を最終到着点に設定
                         auto nex_target = aStage.scrolls()[dest2].pos();
@@ -563,6 +572,9 @@ void get_path_from_dijkstra(const Stage& aStage, Path& path, int y1, int x1, int
                             tx = nx + 1 - EPS;
                             ty = ny;
                         }
+                        path.push_back(Vector2{tx, ty});
+                        d = nd, y = ny, x = nx;
+                        break;
                     }
                 }else{
                     auto ter_org = aStage.terrain(Vector2{x+EPS, y+EPS});
@@ -587,10 +599,11 @@ void get_path_from_dijkstra(const Stage& aStage, Path& path, int y1, int x1, int
 
                     if(path.size() == 0 && src >= 0)
                         first_step[src] = Vector2{tx, ty};
+
+                    path.push_back(Vector2{tx, ty});
+                    d = nd, y = ny, x = nx;
+                    break;
                 }
-                path.push_back(Vector2{tx, ty});
-                d = nd, y = ny, x = nx;
-                break;
             }
         }
     }
@@ -956,7 +969,7 @@ void tsp_sa_simple(const Stage& aStage, int iteration){
     }
 }
 
-Vector2 Answer01(const Stage& aStage, bool path_init_dir){
+Vector2 Answer01(const Stage& aStage, bool path_init_dir, bool path_dest_center){
     static int path_idx;
     static Path path;
     auto pos = aStage.rabbit().pos();
@@ -970,10 +983,10 @@ Vector2 Answer01(const Stage& aStage, bool path_init_dir){
                 int nex_dest = (i+1 < (int)targets.size()) ? targets[i+1] : -1;
                 if(i == (int)targets.size()-1)
                     //get_path_from_dijkstra(aStage, path, pos.y, pos.x, -1, idx, -1, false, path_init_dir);
-                    get_path_from_dijkstra(aStage, path, pos.y, pos.x, -1, idx, nex_dest, false, path_init_dir);
+                    get_path_from_dijkstra(aStage, path, pos.y, pos.x, -1, idx, nex_dest, false, path_init_dir, path_dest_center);
                 else
                     //get_path_from_dijkstra(aStage, path, pos.y, pos.x, -1, idx, -1, false, path_init_dir);
-                    get_path_from_dijkstra(aStage, path, pos.y, pos.x, -1, idx, nex_dest, false, path_init_dir);
+                    get_path_from_dijkstra(aStage, path, pos.y, pos.x, -1, idx, nex_dest, false, path_init_dir, path_dest_center);
                 path_idx = 0;
                 break;
             }
@@ -1028,9 +1041,9 @@ Vector2 Answer02(const Stage& aStage){
             if (!scroll.isGotten()) {
                 path.clear();
                 if(i == (int)targets.size()-1)
-                    get_path_from_dijkstra(aStage, path, pos.y, pos.x, -1, idx, -1, false, false);
+                    get_path_from_dijkstra(aStage, path, pos.y, pos.x, -1, idx, -1, false, false, false);
                 else
-                    get_path_from_dijkstra(aStage, path, pos.y, pos.x, -1, idx, -1, false, false);
+                    get_path_from_dijkstra(aStage, path, pos.y, pos.x, -1, idx, -1, false, false, false);
                 path_idx = 0;
                 jump = false;
                 for(int k = 0; k < (int)path.size(); k++){
@@ -1106,9 +1119,9 @@ Vector2 Answer03(const Stage& aStage){
             if (!scroll.isGotten()) {
                 path.clear();
                 if(i == (int)targets.size()-1)
-                    get_path_from_dijkstra(aStage, path, pos.y, pos.x, -1, idx, -1, false, false);
+                    get_path_from_dijkstra(aStage, path, pos.y, pos.x, -1, idx, -1, false, false, false);
                 else
-                    get_path_from_dijkstra(aStage, path, pos.y, pos.x, -1, idx, -1, false, false);
+                    get_path_from_dijkstra(aStage, path, pos.y, pos.x, -1, idx, -1, false, false, false);
                 path_idx = 0;
                 jump = false;
                 reached = true;
@@ -1175,7 +1188,7 @@ Vector2 Answer03(const Stage& aStage){
 
 }
 
-Vector2 Answer04(const Stage& aStage, int postk, bool path_init_dir){
+Vector2 Answer04(const Stage& aStage, int postk, bool path_init_dir, bool path_dest_center){
     static int path_idx;
     static Path path;
     auto pos = aStage.rabbit().pos();
@@ -1190,9 +1203,9 @@ Vector2 Answer04(const Stage& aStage, int postk, bool path_init_dir){
                 path.clear();
                 int nex_dest = (i+1 < (int)targets.size()) ? targets[i+1] : -1;
                 if(i == (int)targets.size()-1)
-                    get_path_from_dijkstra(aStage, path, pos.y, pos.x, -1, idx, nex_dest, true, path_init_dir);
+                    get_path_from_dijkstra(aStage, path, pos.y, pos.x, -1, idx, nex_dest, true, path_init_dir, path_dest_center);
                 else
-                    get_path_from_dijkstra(aStage, path, pos.y, pos.x, -1, idx, nex_dest, true, path_init_dir);
+                    get_path_from_dijkstra(aStage, path, pos.y, pos.x, -1, idx, nex_dest, true, path_init_dir, path_dest_center);
                 path_idx = 0;
                 jump = false;
                 coord2idx.clear();
@@ -1255,7 +1268,7 @@ Vector2 Answer04(const Stage& aStage, int postk, bool path_init_dir){
 }
 
 /// answer01を改変
-Vector2 Answer05(const Stage& aStage, bool path_init_dir){
+Vector2 Answer05(const Stage& aStage, bool path_init_dir, bool path_dest_center){
     static int path_idx;
     static Path path;
     auto pos = aStage.rabbit().pos();
@@ -1268,9 +1281,9 @@ Vector2 Answer05(const Stage& aStage, bool path_init_dir){
                 path.clear();
                 int nex_dest = (i+1 < (int)targets.size()) ? targets[i+1] : -1;
                 if(i == (int)targets.size()-1)
-                    get_path_from_dijkstra(aStage, path, pos.y, pos.x, -1, idx, nex_dest, false, path_init_dir);
+                    get_path_from_dijkstra(aStage, path, pos.y, pos.x, -1, idx, nex_dest, false, path_init_dir, path_dest_center);
                 else
-                    get_path_from_dijkstra(aStage, path, pos.y, pos.x, -1, idx, nex_dest, false, path_init_dir);
+                    get_path_from_dijkstra(aStage, path, pos.y, pos.x, -1, idx, nex_dest, false, path_init_dir, path_dest_center);
                 path_idx = 0;
                 break;
             }
@@ -1310,44 +1323,79 @@ Vector2 Answer05(const Stage& aStage, bool path_init_dir){
 }
 
 /// 次の地点
-#define NANSWER 16
+//#define NANSWER 14
+#define NANSWER 28
 //#define NANSWER 1
 Vector2 MygetTargetPos(const Stage& aStage, int n){
     assert(0 <= n && n < NANSWER);
-    if(n == 0)
-        return Answer01(aStage, true);
-    else if(n == 1)
-        return Answer01(aStage, false);
-    else if(n == 2)
-        return Answer04(aStage, 2, false);
-    else if(n == 3)
-        return Answer04(aStage, 3, false);
-    else if(n == 4)
-        return Answer04(aStage, 4, false);
-    else if(n == 5)
-        return Answer04(aStage, 5, false);
-    else if(n == 6)
-        return Answer04(aStage, 8, false);
-    else if(n == 7)
-        return Answer04(aStage, 12, false);
-    else if(n == 8)
-        return Answer04(aStage, 2, true);
-    else if(n == 9)
-        return Answer04(aStage, 3, true);
-    else if(n == 10)
-        return Answer04(aStage, 4, true);
-    else if(n == 11)
-        return Answer04(aStage, 5, true);
-    else if(n == 12)
-        return Answer04(aStage, 8, true);
-    else if(n == 13)
-        return Answer04(aStage, 12, true);
-    else if(n == 14)
-        return Answer05(aStage, true);
-    else if(n == 15)
-        return Answer05(aStage, false);
-    else
-        return Answer01(aStage, true);
+    switch(n){
+        case 0 : return Answer01(aStage, true, false);
+        case 1 : return Answer01(aStage, false, false);
+        case 2 : return Answer04(aStage, 3, false, false);
+        case 3 : return Answer04(aStage, 4, false, false);
+        case 4 : return Answer04(aStage, 5, false, false);
+        case 5 : return Answer04(aStage, 8, false, false);
+        case 6 : return Answer04(aStage, 12, false, false);
+        case 7 : return Answer04(aStage, 3, true, false);
+        case 8 : return Answer04(aStage, 4, true, false);
+        case 9 : return Answer04(aStage, 5, true, false);
+        case 10 : return Answer04(aStage, 8, true, false);
+        case 11 : return Answer04(aStage, 12, true, false);
+        case 12 : return Answer05(aStage, true, false);
+        case 13 : return Answer05(aStage, false, false);
+
+        case 14 : return Answer01(aStage, true, true);
+        case 15 : return Answer01(aStage, false, true);
+        case 16 : return Answer04(aStage, 3, false, true);
+        case 17 : return Answer04(aStage, 4, false, true);
+        case 18 : return Answer04(aStage, 5, false, true);
+        case 19 : return Answer04(aStage, 8, false, true);
+        case 20 : return Answer04(aStage, 12, false, true);
+        case 21 : return Answer04(aStage, 3, true, true);
+        case 22 : return Answer04(aStage, 4, true, true);
+        case 23 : return Answer04(aStage, 5, true, true);
+        case 24 : return Answer04(aStage, 8, true, true);
+        case 25 : return Answer04(aStage, 12, true, true);
+        case 26 : return Answer05(aStage, true, true);
+        case 27 : return Answer05(aStage, false, true);
+    }
+    assert(true);
+    return Answer01(aStage, true, true);
+    
+    //if(n == 0)
+    //    return Answer01(aStage, true, false);
+    //else if(n == 1)
+    //    return Answer01(aStage, false, false);
+    //////else if(n == 2)
+    //////    return Answer04(aStage, 2, false, false);
+    //else if(n == 3)
+    //    return Answer04(aStage, 3, false, false);
+    //else if(n == 4)
+    //    return Answer04(aStage, 4, false, false);
+    //else if(n == 5)
+    //    return Answer04(aStage, 5, false, false);
+    //else if(n == 6)
+    //    return Answer04(aStage, 8, false, false);
+    //else if(n == 7)
+    //    return Answer04(aStage, 12, false, false);
+    //////else if(n == 8)
+    //////    return Answer04(aStage, 2, true, false);
+    //else if(n == 9)
+    //    return Answer04(aStage, 3, true, false);
+    //else if(n == 10)
+    //    return Answer04(aStage, 4, true, false);
+    //else if(n == 11)
+    //    return Answer04(aStage, 5, true, false);
+    //else if(n == 12)
+    //    return Answer04(aStage, 8, true, false);
+    //else if(n == 13)
+    //    return Answer04(aStage, 12, true, false);
+    //else if(n == 14)
+    //    return Answer05(aStage, true, false);
+    //else if(n == 15)
+    //    return Answer05(aStage, false, false);
+    //else
+    //    return Answer01(aStage, true, false);
 }
 
 
