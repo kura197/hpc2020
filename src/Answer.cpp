@@ -66,7 +66,7 @@ bool same(Vector2 v1, Vector2 v2);
 int get_terrain_weight(const Stage& aStage, Vector2 pos);
 
 unsigned int randxor();
-void get_path_from_dijkstra(const Stage& aStage, Path& path, int y1, int x1, int src, int dest, int dest2);
+void get_path_from_dijkstra(const Stage& aStage, Path& path, int y1, int x1, int src, int dest, int dest2, bool insert_first, bool init_dir);
 /// ;y1, x1} から scrolls[dest] までの経路を復元. 実装を簡単にするため、目標値はすべてマスの中心にする
 void get_path_from_dijkstra_simple(const Stage& aStage, Path& path, int y1, int x1, int src, int dest, int dest2);
 /// ウサギが次にジャンプすべき座標を計算
@@ -373,6 +373,7 @@ double sales_man_scroll(int S, int v, int size){
     for(int u = 0; u < size; u++){
         if(!(S >> u & 1)){
             double tmp = sales_man(S | 1 << u, u, size) + (float)distance[v][u] / decay;
+            //double tmp = sales_man(S | 1 << u, u, size) + (float)distance[v][u];
             if(res > tmp){
                 res = tmp;
                 next_vertex[S][v] = u;
@@ -491,9 +492,10 @@ int get_direction(Vector2 src, Vector2 dest){
 }
 
 /// {y1, x1} から scrolls[dest] までの経路を復元.
-/// TODO:最後はdest2に近い方角で終わる。 ラストから決めていかないとまずい？？
+/// TODO : 何らかのパラメータでアンサンブル
+/// TODO : 最後の地点の設定
 Vector2 first_step[MAX_V];
-void get_path_from_dijkstra(const Stage& aStage, Path& path, int y1, int x1, int src, int dest, int dest2, bool insert_first){
+void get_path_from_dijkstra(const Stage& aStage, Path& path, int y1, int x1, int src, int dest, int dest2, bool insert_first, bool init_dir){
     //TODO : 最初の地点を保存？
     int d = dist_scroll[dest][y1][x1];
     auto target = aStage.scrolls()[dest].pos();
@@ -509,11 +511,9 @@ void get_path_from_dijkstra(const Stage& aStage, Path& path, int y1, int x1, int
         int dy[2][4][4] = {{{0, 1, 0, -1}, {1, 0, -1, 0}, {0, -1, 0, 1}, {-1, 0, 1, 0}},
                            {{1, 0, -1, 0}, {0, -1, 0, 1}, {-1, 0, 1, 0}, {0, 1, 0, -1}}};
         int direction = get_direction(Vector2{(float)x+(float)0.5, (float)y+(float)0.5}, target);
-        const int turn = path.size();
+        const int turn = path.size() + init_dir;
 
         for(int i = 0; i < 4; i++){
-            //int ny = y + dy[i];
-            //int nx = x + dx[i];
             int ny = y + dy[turn%2][direction][i];
             int nx = x + dx[turn%2][direction][i];
             if(ny < 0 || nx < 0) continue;
@@ -547,13 +547,17 @@ void get_path_from_dijkstra(const Stage& aStage, Path& path, int y1, int x1, int
                         ty = (y + ny + 1) / 2.0;
                     }
                     else if(ter_org < ter_nxt){
-                        ////TODO : もう少し簡単に
+                        //////TODO : もう少し簡単に
                         tx = ((nx+0.5) + (1+EPS)*(x+0.5)) / (2. + EPS);
                         ty = ((ny+0.5) + (1+EPS)*(y+0.5)) / (2. + EPS);
+                        //tx = (1*(nx+0.5) + (x+0.5)) / 2.;
+                        //ty = (1*(ny+0.5) + (y+0.5)) / 2.;
                     }
                     else{
                         tx = ((1+EPS)*(nx+0.5) + (x+0.5)) / (2. + EPS);
                         ty = ((1+EPS)*(ny+0.5) + (y+0.5)) / (2. + EPS);
+                        //tx = (1*(nx+0.5) + (x+0.5)) / 2.;
+                        //ty = (1*(ny+0.5) + (y+0.5)) / 2.;
                     }
 
                     if(path.size() == 0 && src >= 0)
@@ -927,7 +931,7 @@ void tsp_sa_simple(const Stage& aStage, int iteration){
     }
 }
 
-Vector2 Answer01(const Stage& aStage){
+Vector2 Answer01(const Stage& aStage, bool path_init_dir){
     static int path_idx;
     static Path path;
     auto pos = aStage.rabbit().pos();
@@ -939,9 +943,9 @@ Vector2 Answer01(const Stage& aStage){
             if (!scroll.isGotten()) {
                 path.clear();
                 if(i == (int)targets.size()-1)
-                    get_path_from_dijkstra(aStage, path, pos.y, pos.x, -1, idx, -1, false);
+                    get_path_from_dijkstra(aStage, path, pos.y, pos.x, -1, idx, -1, false, path_init_dir);
                 else
-                    get_path_from_dijkstra(aStage, path, pos.y, pos.x, -1, idx, -1, false);
+                    get_path_from_dijkstra(aStage, path, pos.y, pos.x, -1, idx, -1, false, path_init_dir);
                 path_idx = 0;
                 break;
             }
@@ -996,9 +1000,9 @@ Vector2 Answer02(const Stage& aStage){
             if (!scroll.isGotten()) {
                 path.clear();
                 if(i == (int)targets.size()-1)
-                    get_path_from_dijkstra(aStage, path, pos.y, pos.x, -1, idx, -1, false);
+                    get_path_from_dijkstra(aStage, path, pos.y, pos.x, -1, idx, -1, false, false);
                 else
-                    get_path_from_dijkstra(aStage, path, pos.y, pos.x, -1, idx, -1, false);
+                    get_path_from_dijkstra(aStage, path, pos.y, pos.x, -1, idx, -1, false, false);
                 path_idx = 0;
                 jump = false;
                 for(int k = 0; k < (int)path.size(); k++){
@@ -1074,9 +1078,9 @@ Vector2 Answer03(const Stage& aStage){
             if (!scroll.isGotten()) {
                 path.clear();
                 if(i == (int)targets.size()-1)
-                    get_path_from_dijkstra(aStage, path, pos.y, pos.x, -1, idx, -1, false);
+                    get_path_from_dijkstra(aStage, path, pos.y, pos.x, -1, idx, -1, false, false);
                 else
-                    get_path_from_dijkstra(aStage, path, pos.y, pos.x, -1, idx, -1, false);
+                    get_path_from_dijkstra(aStage, path, pos.y, pos.x, -1, idx, -1, false, false);
                 path_idx = 0;
                 jump = false;
                 reached = true;
@@ -1143,7 +1147,7 @@ Vector2 Answer03(const Stage& aStage){
 
 }
 
-Vector2 Answer04(const Stage& aStage, int postk){
+Vector2 Answer04(const Stage& aStage, int postk, bool path_init_dir){
     static int path_idx;
     static Path path;
     auto pos = aStage.rabbit().pos();
@@ -1157,9 +1161,9 @@ Vector2 Answer04(const Stage& aStage, int postk){
             if (!scroll.isGotten()) {
                 path.clear();
                 if(i == (int)targets.size()-1)
-                    get_path_from_dijkstra(aStage, path, pos.y, pos.x, -1, idx, -1, true);
+                    get_path_from_dijkstra(aStage, path, pos.y, pos.x, -1, idx, -1, true, path_init_dir);
                 else
-                    get_path_from_dijkstra(aStage, path, pos.y, pos.x, -1, idx, -1, true);
+                    get_path_from_dijkstra(aStage, path, pos.y, pos.x, -1, idx, -1, true, path_init_dir);
                 path_idx = 0;
                 jump = false;
                 coord2idx.clear();
@@ -1221,31 +1225,98 @@ Vector2 Answer04(const Stage& aStage, int postk){
 
 }
 
+/// answer01を改変
+Vector2 Answer05(const Stage& aStage, bool path_init_dir){
+    static int path_idx;
+    static Path path;
+    auto pos = aStage.rabbit().pos();
+    if(aStage.turn() == 0 || same(pos, path[path.size()-1])){
+        auto scrolls = aStage.scrolls();
+        for(int i = 0; i < (int)targets.size(); i++){
+            int idx = targets[i];
+            auto scroll = scrolls[idx];
+            if (!scroll.isGotten()) {
+                path.clear();
+                if(i == (int)targets.size()-1)
+                    get_path_from_dijkstra(aStage, path, pos.y, pos.x, -1, idx, -1, false, path_init_dir);
+                else
+                    get_path_from_dijkstra(aStage, path, pos.y, pos.x, -1, idx, -1, false, path_init_dir);
+                path_idx = 0;
+                break;
+            }
+        }
+    }
+
+    Vector2 target;
+    Terrain tar_terrain;
+    Vector2 pre_point = pos;
+    Terrain pre_terrain = aStage.terrain(pre_point);
+    bool first = true;
+    while(1){
+        target = path[path_idx];
+        tar_terrain = aStage.terrain(target);
+
+        auto next = aStage.getNextPos(pos, aStage.rabbit().power(), target);
+        auto nex_terrain = aStage.terrain(next);
+
+        if(!first && tar_terrain > pre_terrain){
+            target = pre_point;
+            break;
+        }
+        else if(path_idx+1 < (int)path.size() && same(target, next)){
+            path_idx++;
+        }
+        else{
+            if(nex_terrain == tar_terrain)
+                target = next;
+            break;
+        }
+
+        pre_point = target;
+        pre_terrain = tar_terrain;
+        first = false;
+    }
+    return target;
+}
+
 /// 次の地点
+#define NANSWER 16
 Vector2 MygetTargetPos(const Stage& aStage, int n){
-    assert(0 <= n && n <= 9);
+    assert(0 <= n && n < NANSWER);
     if(n == 0)
-        return Answer01(aStage);
+        return Answer01(aStage, true);
     else if(n == 1)
-        return Answer04(aStage, 3);
+        return Answer01(aStage, false);
     else if(n == 2)
-        return Answer04(aStage, 5);
+        return Answer04(aStage, 2, false);
     else if(n == 3)
-        return Answer04(aStage, 8);
+        return Answer04(aStage, 3, false);
     else if(n == 4)
-        return Answer04(aStage, 12);
+        return Answer04(aStage, 4, false);
     else if(n == 5)
-        return Answer04(aStage, 2);
+        return Answer04(aStage, 5, false);
     else if(n == 6)
-        return Answer04(aStage, 4);
+        return Answer04(aStage, 8, false);
     else if(n == 7)
-        return Answer04(aStage, 6);
+        return Answer04(aStage, 12, false);
     else if(n == 8)
-        return Answer04(aStage, 10);
+        return Answer04(aStage, 2, true);
     else if(n == 9)
-        return Answer04(aStage, 14);
+        return Answer04(aStage, 3, true);
+    else if(n == 10)
+        return Answer04(aStage, 4, true);
+    else if(n == 11)
+        return Answer04(aStage, 5, true);
+    else if(n == 12)
+        return Answer04(aStage, 8, true);
+    else if(n == 13)
+        return Answer04(aStage, 12, true);
+    else if(n == 14)
+        return Answer05(aStage, true);
+    else if(n == 15)
+        return Answer05(aStage, false);
     else
-        return Answer01(aStage);
+        return Answer01(aStage, true);
 }
 
 
@@ -1319,14 +1390,14 @@ void Answer::initialize(const Stage& aStage)
         //build_target_sequence_from_tsp();
         //update_path_from_targets(aStage);
     
+        std::vector<int> best_targets;
+        int best_score = 100000;
         //const int iteration = 2500000;
         // 十分っぽい
         //// 28049
         //const int iteration = 500000;
         //// 28060
         const int iteration = 50000;
-        std::vector<int> best_targets;
-        int best_score = 100000;
         //const int nloop = (nscrolls < 8) ? 1 : 1;
         //// 28060
         const int nloop = (nscrolls < 8) ? 10 : 30;
@@ -1347,8 +1418,7 @@ void Answer::initialize(const Stage& aStage)
                 targets = _targets;
 
             //TODO : test
-            //for(int k = 0; k < 5; k++){
-            for(int k = 0; k < 10; k++){
+            for(int k = 0; k < NANSWER; k++){
                 EmulateGame eGame(aStage);
                 int score = eGame.run(k);
                 if(score < best_score){
@@ -1357,14 +1427,6 @@ void Answer::initialize(const Stage& aStage)
                     answer = k;
                 }
             }
-            
-            //eGame.init(aStage);
-            //score = eGame.run(4);
-            //if(score < best_score){
-            //    best_score = score;
-            //    best_targets = targets;
-            //    answer = 4;
-            //}
         }
 
         // TODO : efficient targets copy
@@ -1372,16 +1434,28 @@ void Answer::initialize(const Stage& aStage)
 
     }
     else{
-        float min_dist = 1e10;
-        std::vector<int> _targets;
+        //float min_dist = 1e10;
+        //std::vector<int> _targets;
+        int best_score = 100000;
+        std::vector<int> best_targets;
         do{
-            float new_dist = path_length_from_dijkstra(aStage);
-            if(new_dist < min_dist){
-                _targets = targets;
-                min_dist = new_dist;
+            //float new_dist = path_length_from_dijkstra(aStage);
+            //if(new_dist < min_dist){
+            //    _targets = targets;
+            //    min_dist = new_dist;
+            //}
+            for(int k = 0; k < NANSWER; k++){
+                EmulateGame eGame(aStage);
+                int score = eGame.run(k);
+                if(score < best_score){
+                    best_score = score;
+                    best_targets = targets;
+                    answer = k;
+                }
             }
         }while(std::next_permutation(targets.begin(), targets.end()));
-        targets = _targets;
+        //targets = _targets;
+        targets = best_targets;
     }
 }
 
@@ -1393,115 +1467,6 @@ void Answer::initialize(const Stage& aStage)
 Vector2 Answer::getTargetPos(const Stage& aStage)
 {
     return MygetTargetPos(aStage, answer);
-/*
-    auto pos = aStage.rabbit().pos();
-    for(auto scroll : aStage.scrolls()) {
-        // まだ手に入れていない巻物を探して、そこに向かって飛ぶ
-        if (!scroll.isGotten()) {
-            return scroll.pos();
-        }
-    }
-    return pos;
-*/
-/*
-    auto pos = aStage.rabbit().pos();
-    static int path_idx;
-    if(aStage.turn() == 0 || same(pos, path[path.size()-1])){
-        auto scrolls = aStage.scrolls();
-        for(int i = 0; i < (int)targets.size(); i++){
-            int idx = targets[i];
-            auto scroll = scrolls[idx];
-            if (!scroll.isGotten()) {
-                int src = (i == 0) ? -1 : i-1;
-                path.clear();
-                if(i == (int)targets.size()-1)
-                    get_path_from_dijkstra(aStage, path, pos.y, pos.x, src, idx, -1);
-                else
-                    //get_path_from_dijkstra(aStage, path, pos.y, pos.x, src, idx, targets[i+1]);
-                    get_path_from_dijkstra(aStage, path, pos.y, pos.x, src, idx, -1);
-                path_idx = 0;
-                break;
-            }
-        }
-    }
-    auto next = next_path(aStage, path, path_idx, pos, aStage.rabbit().power());
-    return next;
-*/
-    //TODO : 池を後の方に回す
-/*
-    static int src, dest;
-    static int dest_idx;
-    static int path_idx;
-    if(aStage.turn() == 0){
-        dest_idx = 0;
-        src = 0;
-        dest = 1 + targets[dest_idx++];
-        path_idx = 0;
-    }
-
-    if((int)sequence_simple[src][dest].size() == path_idx){
-        //printf("Change target\n\n");
-        src = dest;
-        dest = 1 + targets[dest_idx++];
-        path_idx = 0;
-    }
-
-    auto next = sequence_simple[src][dest][path_idx++];
-    return next;
-*/
-/*
-    static int path_idx;
-    static Path path;
-    auto pos = aStage.rabbit().pos();
-    if(aStage.turn() == 0 || same(pos, path[path.size()-1])){
-        auto scrolls = aStage.scrolls();
-        for(int i = 0; i < (int)targets.size(); i++){
-            int idx = targets[i];
-            auto scroll = scrolls[idx];
-            if (!scroll.isGotten()) {
-                path.clear();
-                if(i == (int)targets.size()-1)
-                    get_path_from_dijkstra(aStage, path, pos.y, pos.x, -1, idx, -1);
-                else
-                    get_path_from_dijkstra(aStage, path, pos.y, pos.x, -1, idx, -1);
-                path_idx = 0;
-                break;
-            }
-        }
-    }
-
-    Vector2 target;
-    Terrain tar_terrain;
-    Vector2 pre_point = pos;
-    Terrain pre_terrain = aStage.terrain(pre_point);
-    bool first = true;
-    while(1){
-        target = path[path_idx];
-        tar_terrain = aStage.terrain(target);
- 
-        auto next = aStage.getNextPos(pos, aStage.rabbit().power(), target);
-        auto nex_terrain = aStage.terrain(next);
- 
-        if(!first && tar_terrain > pre_terrain){
-            /// TODO:pre_pointがrabbit.pos()の場合を除く。
-            target = pre_point;
-            break;
-        }
-        else if(path_idx+1 < (int)path.size() && same_float(target, next)){
-            path_idx++;
-        }
-        else{
-            if(nex_terrain == tar_terrain)
-                target = next;
-            break;
-        }
- 
-        pre_point = target;
-        pre_terrain = tar_terrain;
-        first = false;
-    }
-    return target;
-*/
 }
 
 //------------------------------------------------------------------------------
