@@ -39,7 +39,7 @@ double distance[25][25];
 /// dijkstra方で用いる距離
 int dist_scroll[Parameter::MaxScrollCount][Parameter::StageHeight][Parameter::StageWidth];
 
-/// 巻物の取る順番
+/// 巻物を取る順番
 std::vector<int> targets;
 
 struct Edge{int y, x, weight;};
@@ -141,7 +141,9 @@ bool same_float(Vector2 v1, Vector2 v2){
 
 /// v1とv2が同じマスかどうか判定
 bool same(Vector2 v1, Vector2 v2){
-    return ((int)v1.x == (int)v2.x && (int)v1.y == (int)v2.y);
+    //return ((int)v1.x == (int)v2.x && (int)v1.y == (int)v2.y);
+    return (static_cast<int>(v1.x) == static_cast<int>(v2.x) 
+            && static_cast<int>(v1.y) == static_cast<int>(v2.y));
 }
 
 /// dijkstra法を基にdistanceを更新
@@ -1001,6 +1003,211 @@ Vector2 MygetTargetPos(const Stage& aStage, int n){
     return Answer01(aStage, true, true, true);
 }
 
+Vector2 execute_answer(const Stage& aStage, int nth_answer, Path path, Vector2 cur_pos, float cur_power, bool init, bool strict, int postk){
+    static int path_idx;
+    if(init) {
+        path_idx = 0;
+    }
+
+    //auto pos = aStage.rabbit().pos();
+    auto pos = cur_pos;
+    if(nth_answer == 1){
+        /// 到達可能な点の次の点を目標とする。
+        Vector2 target;
+        Terrain tar_terrain;
+        Vector2 pre_point = pos;
+        Terrain pre_terrain = aStage.terrain(pre_point);
+        bool first = true;
+        while(1){
+            target = path[path_idx];
+            tar_terrain = aStage.terrain(target);
+
+            auto next = aStage.getNextPos(pos, cur_power, target);
+            //auto nex_terrain = aStage.terrain(next);
+
+            if(!first && tar_terrain > pre_terrain){
+                target = pre_point;
+                break;
+            }
+            else if(path_idx+1 < (int)path.size() && ((strict && same_float(target, next)) || (!strict && same(target, next)))){
+                path_idx++;
+            }
+            else{
+                break;
+            }
+
+            pre_point = target;
+            pre_terrain = tar_terrain;
+            first = false;
+        }
+        return target;
+    }
+    else if(nth_answer == 4){
+        static std::map<std::pair<int, int>, int> coord2idx;
+        static int jump;
+        if(init){
+            jump = 0;
+            coord2idx.clear();
+            for(int k = 0; k < (int)path.size(); k++){
+                auto coord = path[k];
+                coord2idx[std::make_pair((int)coord.x, (int)coord.y)] = k;
+            }
+        }
+
+        auto p = std::make_pair((int)pos.x, (int)pos.y);
+        static Vector2 checkpoint;
+        /// postk個先の点を目標とする。その際地形が悪化する場合は前の点を目標とする。
+        if(coord2idx.find(p) == coord2idx.end()){
+            return checkpoint;
+        }
+        else{
+            int cur_path_idx = coord2idx[p];
+            auto cur_terrain = aStage.terrain(pos);
+            // TODO merge
+            for(int k = postk; k >= 0; k--){
+                if(cur_path_idx + k >= (int)path.size())
+                    continue;
+                int next_path_idx = cur_path_idx + k;
+                auto target = path[next_path_idx];
+                auto tmp_pos = pos;
+                bool valid = true;
+                while(1){
+                    auto next = aStage.getNextPos(tmp_pos, cur_power, target);
+                    auto nex_terrain = aStage.terrain(next);
+                    if(jump){
+                        jump = false;
+                        cur_terrain = nex_terrain;
+                    }
+                    if(same(next, target)){
+                        break;
+                    }
+                    else if(nex_terrain > cur_terrain){
+                        valid = false;
+                        break;
+                    }
+                    tmp_pos = next;
+                }
+
+                if(valid){
+                    path_idx = next_path_idx;
+                    jump = (k == 0);
+                    break;
+                }
+            }
+
+            checkpoint = path[path_idx];
+            return path[path_idx];
+        }
+    }
+    else{
+        assert(false);
+    }
+    return Vector2{-1, -1};
+}
+
+void set_ensemble_parameters(int n, int& nth_answer, bool& strict, int& postk, bool& path_init_dir, bool& path_dest_center){
+    assert(0 <= n && n < NANSWER);
+    switch(n){
+        case 0 :  nth_answer = 1, path_init_dir = true,  path_dest_center = false, strict = true; break;
+        case 1 :  nth_answer = 1, path_init_dir = false, path_dest_center = false, strict = true; break;
+        case 2 :  nth_answer = 4, postk = 3,  path_init_dir = false, path_dest_center = false; break;
+        case 3 :  nth_answer = 4, postk = 4,  path_init_dir = false, path_dest_center = false; break;
+        case 4 :  nth_answer = 4, postk = 5,  path_init_dir = false, path_dest_center = false; break;
+        case 5 :  nth_answer = 4, postk = 8,  path_init_dir = false, path_dest_center = false; break;
+        case 6 :  nth_answer = 4, postk = 12, path_init_dir = false, path_dest_center = false; break;
+        case 7 :  nth_answer = 4, postk = 3,  path_init_dir = true,  path_dest_center = false; break;
+        case 8 :  nth_answer = 4, postk = 4,  path_init_dir = true,  path_dest_center = false; break;
+        case 9 :  nth_answer = 4, postk = 5,  path_init_dir = true,  path_dest_center = false; break;
+        case 10 : nth_answer = 4, postk = 8,  path_init_dir = true,  path_dest_center = false; break;
+        case 11 : nth_answer = 4, postk = 12, path_init_dir = true,  path_dest_center = false; break;
+        case 12 : nth_answer = 1, path_init_dir = true,  path_dest_center = false, strict = false; break;
+        case 13 : nth_answer = 1, path_init_dir = false, path_dest_center = false, strict = false; break;
+
+        case 14 : nth_answer = 1, path_init_dir = true,  path_dest_center = true, strict = true; break;
+        case 15 : nth_answer = 1, path_init_dir = false, path_dest_center = true, strict = true; break;
+        case 16 : nth_answer = 4, postk = 3,  path_init_dir = false, path_dest_center = true; break;
+        case 17 : nth_answer = 4, postk = 4,  path_init_dir = false, path_dest_center = true; break;
+        case 18 : nth_answer = 4, postk = 5,  path_init_dir = false, path_dest_center = true; break;
+        case 19 : nth_answer = 4, postk = 8,  path_init_dir = false, path_dest_center = true; break;
+        case 20 : nth_answer = 4, postk = 12, path_init_dir = false, path_dest_center = true; break;
+        case 21 : nth_answer = 4, postk = 3,  path_init_dir = true,  path_dest_center = true; break;
+        case 22 : nth_answer = 4, postk = 4,  path_init_dir = true,  path_dest_center = true; break;
+        case 23 : nth_answer = 4, postk = 5,  path_init_dir = true,  path_dest_center = true; break;
+        case 24 : nth_answer = 4, postk = 8,  path_init_dir = true,  path_dest_center = true; break;
+        case 25 : nth_answer = 4, postk = 12, path_init_dir = true,  path_dest_center = true; break;
+        case 26 : nth_answer = 1, path_init_dir = true,  path_dest_center = true, strict = false; break;
+        case 27 : nth_answer = 1, path_init_dir = false, path_dest_center = true, strict = false; break;
+    }
+}
+
+int answers[30];
+Path ans_path[50];
+int ans_num;
+
+/// 各answerで最もよいものをanswersに格納
+void search_best_answers(const Stage& aStage, int nth_loop){
+    ans_path[nth_loop].clear();
+    auto scrolls = aStage.scrolls();
+    auto cur_pos = aStage.rabbit().pos();
+    //// 各地点間で最も良い方法を探索
+    for(int i = 0; i < (int)targets.size(); i++){
+        int dest = targets[i];
+        int nex_dest = (i+1 < (int)targets.size()) ? targets[i+1] : -1;
+        auto scroll = scrolls[dest];
+        //auto cur_pos = (i == 0) ? aStage.rabbit().pos() : scrolls[targets[i-1]].pos();
+        auto power = POWER[i];
+        int best_turn = 10000;
+        int best_answer = -1;
+        Vector2 best_last_pos;
+
+        /// 各方法での通ったパスを記録
+        /// TODO : 計算時間
+        Path checkpoints[NANSWER];
+
+        //// 各answerを試す
+        for(int n = 0; n < NANSWER; n++){
+            auto tmp_pos = cur_pos;
+            bool init = true;
+
+            int nth_answer = 0, postk = 0;
+            bool strict = false;
+            bool path_init_dir = false; 
+            bool path_dest_center = false;
+
+            set_ensemble_parameters(n, nth_answer, strict, postk, path_init_dir, path_dest_center);
+
+            ////TODO : skip if using same path
+            Path path;
+            get_path_from_dijkstra(aStage, path, tmp_pos.y, tmp_pos.x, -1, dest, nex_dest, nth_answer == 4, path_init_dir, path_dest_center);
+
+            int current_turn = 0;
+            //while (!stage.isEnd() && stage.turn() < Parameter::GameTurnLimit && !stage.isOutOfBounds(stage.rabbit().pos())) {
+            while (!same(scroll.pos(), tmp_pos) && current_turn < Parameter::GameTurnLimit) {
+                // ターン開始
+                //auto targetPos = MygetTargetPos(stage, n);
+                auto targetPos = execute_answer(aStage, nth_answer, path, tmp_pos, power, init, strict, postk);
+                tmp_pos = aStage.getNextPos(tmp_pos, power, targetPos);
+                checkpoints[n].push_back(tmp_pos);
+                current_turn++;
+                init = false;
+            }
+            //printf("Score %d : %d\n", n, current_turn);
+
+            if(current_turn < best_turn){
+                best_turn = current_turn;
+                best_answer = n;
+                best_last_pos = tmp_pos;
+            }
+        }
+        //printf("best : %d\n", best_answer);
+        answers[i] = best_answer;
+        cur_pos = best_last_pos;
+        for(auto&& v : checkpoints[best_answer])
+            ans_path[nth_loop].push_back(v);
+        //printf("path size : %d\n", (int)ans_path[nth_loop].size());
+    }
+}
+
 
 //------------------------------------------------------------------------------
 /// コンストラクタ
@@ -1049,11 +1256,7 @@ void Answer::initialize(const Stage& aStage)
     const int nscrolls = aStage.scrolls().count();
     targets_init(aStage);
     if(nscrolls >= 3){
-        //sales_man_init(vertices.size());
-        //sales_man(1 << 0, 0, vertices.size());
-        //build_target_sequence_from_tsp();
-        //update_path_from_targets(aStage);
-    
+        /*
         std::vector<int> best_targets;
         int best_score = 100000;
         //const int iteration = 2500000;
@@ -1094,12 +1297,40 @@ void Answer::initialize(const Stage& aStage)
                 }
             }
         }
-
-        // TODO : efficient targets copy
         targets = best_targets;
+        */
 
+        int best_score = 100000;
+        const int iteration = 50000;
+        const int nloop = (nscrolls < 8) ? 10 : 30;
+        //const int nloop = (nscrolls < 8) ? 1 : 1;
+        /// nloop個回探索
+        for(int i = 0; i < nloop; i++){
+            targets_shuffle(aStage);
+
+            /// SA法をなどを用いて探索
+            tsp_sa_simple(aStage, iteration);
+            tsp_2opt_simple(aStage);
+
+            //// 1.8sec for 20 elms
+            float dist = path_length_from_dijkstra(aStage);
+            std::vector<int> _targets = targets;
+            tsp_2opt(aStage);
+            float new_dist = path_length_from_dijkstra(aStage);
+            if(new_dist > dist)
+                targets = _targets;
+
+            /// NANSWER個の移動アルゴリズムから最も良いものを選択
+            search_best_answers(aStage, i);
+            int score = ans_path[i].size();
+            if(score < best_score){
+                best_score = score;
+                ans_num = i;
+            }
+        }
     }
     else{
+        /*
         int best_score = 100000;
         std::vector<int> best_targets;
         do{
@@ -1114,6 +1345,18 @@ void Answer::initialize(const Stage& aStage)
             }
         }while(std::next_permutation(targets.begin(), targets.end()));
         targets = best_targets;
+        */
+        int best_score = 100000;
+        int idx = 0;
+        do{
+            search_best_answers(aStage, idx);
+            int score = ans_path[idx].size();
+            if(score < best_score){
+                best_score = score;
+                ans_num = idx;
+            }
+            idx++;
+        }while(std::next_permutation(targets.begin(), targets.end()));
     }
 }
 
@@ -1124,7 +1367,12 @@ void Answer::initialize(const Stage& aStage)
 /// @return 移動の目標座標
 Vector2 Answer::getTargetPos(const Stage& aStage)
 {
-    return MygetTargetPos(aStage, answer);
+    //return MygetTargetPos(aStage, answer);
+
+    static int path_idx;
+    if(aStage.turn() == 0)
+        path_idx = 0;
+    return ans_path[ans_num][path_idx++];
 }
 
 //------------------------------------------------------------------------------
