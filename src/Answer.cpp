@@ -23,15 +23,14 @@ namespace hpc {
 typedef std::vector<Vector2> Ver;
 typedef std::vector<Vector2> Path;
 // {対象までの距離, 座標}
-typedef std::pair<double, Vector2> P_dist;
 typedef std::pair<int, int> P;
 
 const float EPS = 1e-5;
-//const double EPS = 1e-3;
 const double INF = 1e50;
 /// rabbit : 0, others : 1 - 20
 const int MAX_V = 1 + Parameter::MaxScrollCount;
 
+/// 巻物をn個とった際のジャンプ力
 float POWER[30];
 
 /// ウサギ&巻物 間の速さをジャンプ力を1.0とした場合の移動時間
@@ -48,14 +47,7 @@ struct Edge{int y, x, weight;};
 /// 各タイルを結んだグラフ {nx, ny, weight}
 std::vector<Edge> Graph[Parameter::StageHeight][Parameter::StageWidth];
 
-double dist(Vector2 v1, Vector2 v2);
-Vector2 calc_point_rot(Vector2 v1, Vector2 v2, double theta);
-double dist_opt(const Stage& aStage, Vector2 v1, Vector2 v2, int top_k, const std::vector<double>& Theta);
-void distance_init(const Stage& aStage);
-void warshall_floyd(Ver vertices);
-void calc_distance_greedy(Ver vertices);
 void calc_distance_dijkstra(const Stage& aStage, Ver vertices);
-void calc_distance_search_topk(const Stage& aStage, Ver vertices, int topk, const std::vector<double>& Theta);
 void sales_man_init(int size);
 double sales_man(int S, int v, int size);
 void vertices_init(Ver& vertices, const Stage& aStage);
@@ -67,7 +59,7 @@ int get_terrain_weight(const Stage& aStage, Vector2 pos);
 
 unsigned int randxor();
 void get_path_from_dijkstra(const Stage& aStage, Path& path, int y1, int x1, int src, int dest, int dest2, bool insert_first, bool init_dir, bool set_dest_center);
-/// ;y1, x1} から scrolls[dest] までの経路を復元. 実装を簡単にするため、目標値はすべてマスの中心にする
+/// {y1, x1} から scrolls[dest] までの経路を復元. 実装を簡単にするため、目標値はすべてマスの中心にする
 void get_path_from_dijkstra_simple(const Stage& aStage, Path& path, int y1, int x1, int src, int dest, int dest2);
 /// ウサギが次にジャンプすべき座標を計算
 Vector2 next_path(const Stage& aStage, Path path, int& path_idx, Vector2 cur_pos, float power);
@@ -122,7 +114,7 @@ class EmulateGame{
         }
 };
 
-
+/// pos地点の地形から設定した重みを返す
 int get_terrain_weight(const Stage& aStage, Vector2 pos){
     int weight = 0;
     auto terrain = aStage.terrain(pos);
@@ -142,41 +134,6 @@ int get_terrain_weight(const Stage& aStage, Vector2 pos){
     return weight;
 }
 
-/// v1, v2間の直線距離
-double dist(Vector2 v1, Vector2 v2){
-    double diff_y = v1.y - v2.y;
-    double diff_x = v1.x - v2.x;
-    return std::sqrt(diff_y*diff_y + diff_x*diff_x);
-}
-
-/// v1からv2へrot回転された点を算出
-Vector2 calc_point_rot(Vector2 v1, Vector2 v2, double theta){
-    Vector2 target = {0, 0};
-    float vec_x = v2.x - v1.x;
-    float vec_y = v2.y - v1.y;
-    target.x = v1.x + vec_x * cos(theta) - vec_y * sin(theta);
-    target.y = v1.y + vec_x * sin(theta) + vec_y * cos(theta);
-    if(target.y < 0){
-        target.x = v1.x + (target.x - v1.x) * (v1.y / (v1.y - target.y));
-        target.y = 0;
-    }
-    if(target.x < 0){
-        target.y = v1.y + (target.y - v1.y) * (v1.x / (v1.x - target.x));
-        target.x = 0;
-    }
-    if(target.y >= Parameter::StageWidth){
-        const float Y = Parameter::StageWidth - EPS;
-        target.x = v1.x + (target.x - v1.x) * ((v1.y - Y) / (v1.y - target.y));
-        target.y = Y;
-    }
-    if(target.x >= Parameter::StageHeight){
-        const float X = Parameter::StageHeight - EPS;
-        target.y = v1.y + (target.y - v1.y) * ((v1.x - X) / (v1.x - target.x));
-        target.x = X;
-    }
-    return target;
-}
-
 /// v1とv2が同じ位置かどうか判定
 bool same_float(Vector2 v1, Vector2 v2){
     return (fabs(v1.x - v2.x) < EPS && fabs(v1.y - v2.y) < EPS);
@@ -185,116 +142,6 @@ bool same_float(Vector2 v1, Vector2 v2){
 /// v1とv2が同じマスかどうか判定
 bool same(Vector2 v1, Vector2 v2){
     return ((int)v1.x == (int)v2.x && (int)v1.y == (int)v2.y);
-}
-
-// TODO : check efficiency
-template<typename T>
-void queue_clear(T &que)
-{
-   T empty;
-   std::swap(que, empty);
-}
-
-class Comp_P_dist{
-    public:
-    bool operator() (const P_dist& a, const P_dist& b){
-        return a.first > b.first;
-    }
-};
-
-/// v1, v2間の移動にかかるターン数(ジャンプ力 = 1)
-double dist_opt(const Stage& aStage, Vector2 v1, Vector2 v2, int top_k, const std::vector<double>& Theta){
-    std::priority_queue<P_dist, std::vector<P_dist>, Comp_P_dist> que;
-    que.push(P_dist(dist(v1, v2), v1));
-    //const std::vector<double> Theta = {M_PI/2, M_PI/3, M_PI/6, 0, -M_PI/6, -M_PI/3, -M_PI/2};
-    int turn = 0;
-    while(1){
-        Ver pos_array;
-        bool finish = false;
-        while(!que.empty() && (int)pos_array.size() < top_k){
-            auto x = que.top(); que.pop();
-            pos_array.push_back(x.second);
-            //if(x.first < EPS){
-            auto pos = x.second;
-            if((int)pos.x == (int)v2.x && (int)pos.y == (int)v2.y){
-                //printf("Found : turn = %d\n", turn);
-                finish = true;
-                break;
-            }
-        }
-
-        if(finish)
-            break;
-
-        turn++;
-        queue_clear<decltype(que)>(que);
-        for(auto v : pos_array){
-            for(auto theta : Theta){
-                // +theta, -thetaの両方を行う
-                int nloop = (theta == 0) ? 1 : 2;
-                for(int i = 0; i < nloop; i++){
-                    theta = (i == 0) ? theta : -theta;
-                    auto target = calc_point_rot(v, v2, theta);
-                    auto nv = aStage.getNextPos(v, 1.0, target);
-                    que.push(P_dist(dist(nv, v2), nv));
-                }
-            }
-        }
-    }
-    return turn;
-}
-
-class Vector2Compare{
-    public:
-        bool operator()(const Vector2& a, const Vector2& b){return (a.x == b.x) ? a.y < b.y : a.x < b.x;};
-};
-
-
-/// 各点間をINFに初期化
-void distance_init(const Stage& aStage){
-    int size = aStage.scrolls().count();
-    for(int i = 0; i < size; i++)
-        for(int j = 0; j < size; j++)
-            if(i == j) distance[i][j] = 0;
-            else distance[i][j] = INF;
-}
-
-/// 全点間距離を求める。()
-void warshall_floyd(Ver vertices){
-    int size = vertices.size();
-    for(int i = 0; i < size; i++)
-        for(int j = 0; j < size; j++)
-            if(i == j) distance[i][j] = 0;
-            else distance[i][j] = INF;
-
-    for(int k = 0; k < size; k++)
-        for(int i = 0; i < size; i++)
-            for(int j = 0; j < size; j++)
-                distance[i][j] = std::min(distance[i][j], distance[i][k] + distance[k][j]);
-}
-
-/// 直線距離で全点間のdistanceを更新
-void calc_distance_greedy(Ver vertices){
-    int size = vertices.size();
-    for(int i = 0; i < size; i++){
-        for(int j = i+1; j < size; j++){
-            auto v1 = vertices[i];
-            auto v2 = vertices[j];
-            distance[i][j] = distance[j][i] = dist(v1, v2);
-        }
-    }
-}
-
-/// ビームサーチによる経路探索
-void calc_distance_search_topk(const Stage& aStage, Ver vertices, int topk, const std::vector<double>& Theta){
-    int size = vertices.size();
-    for(int i = 0; i < size; i++){
-        for(int j = i+1; j < size; j++){
-            auto v1 = vertices[i];
-            auto v2 = vertices[j];
-            distance[i][j] = distance[j][i] = dist_opt(aStage, v1, v2, topk, Theta);
-        }
-    }
 }
 
 /// dijkstra法を基にdistanceを更新
@@ -349,40 +196,6 @@ double sales_man(int S, int v, int size){
     return DP[S][v] = res;
 }
 
-/// すべての頂点を一度ずつめぐり帰ってくる経路のうち、重みの総和の最小値を求める。
-/// TODO : 巻物の取得数も考慮する.  ほぼ効果なし。
-/// O(2**n n**2)
-double sales_man_scroll(int S, int v, int size){
-    if(DP[S][v] >= 0){
-        return DP[S][v];
-    }
-
-    //if(S == (1 << size)-1 && v == 0)
-    if(S == (1 << size)-1)
-        return DP[S][v] = 0;
-
-    int pop_count = 0;
-    for(int i = 0; i < size; i++)
-        if((S >> i) & 1)
-            pop_count++;
-    float decay = 1.0;
-    for(int p = 0; p < pop_count-1; p++)
-        decay *= 1.1;
-
-    double res = INF;
-    for(int u = 0; u < size; u++){
-        if(!(S >> u & 1)){
-            double tmp = sales_man(S | 1 << u, u, size) + (float)distance[v][u] / decay;
-            //double tmp = sales_man(S | 1 << u, u, size) + (float)distance[v][u];
-            if(res > tmp){
-                res = tmp;
-                next_vertex[S][v] = u;
-            }
-        }
-    }
-    return DP[S][v] = res;
-}
-
 /// vertice配列の初期化
 void vertices_init(Ver& vertices, const Stage& aStage){
     vertices.push_back(aStage.rabbit().pos());
@@ -402,12 +215,6 @@ void build_target_sequence_from_tsp(){
         /// v=0はRabbitであるため。
         targets.push_back(v-1);
     }
-
-    //printf("%d : ", (int)targets.size());
-    //for(auto idx : targets){
-    //    printf("%d ", idx);
-    //}
-    //printf("\n");
 }
 
 /// 地形情報からGraphを初期化.(いらないかも)
@@ -493,7 +300,9 @@ int get_direction(Vector2 src, Vector2 dest){
 
 /// {y1, x1} から scrolls[dest] までの経路を復元.
 /// TODO : 何らかのパラメータでアンサンブル
-/// TODO : 最後の地点の設定
+/// 最後の地点の設定
+/// 4隅をうまく使えないか？
+/// TODO : 最後の地点ではなく、次に曲がる方向に寄っておく
 Vector2 first_step[MAX_V];
 void get_path_from_dijkstra(const Stage& aStage, Path& path, int y1, int x1, int src, int dest, int dest2, bool insert_first, bool init_dir, bool set_dest_center){
     assert(src == -1);
@@ -502,7 +311,7 @@ void get_path_from_dijkstra(const Stage& aStage, Path& path, int y1, int x1, int
     auto target = aStage.scrolls()[dest].pos();
     int y = y1, x = x1;
     if(insert_first)
-        path.push_back(Vector2{(float)x+(float)0.5, (float)y+(float)0.5});
+        path.push_back(Vector2{(float)(x+0.5), (float)(y+0.5)});
     while(d != 0){
         //TODO : to center? 
         // 特にtargetが池の場合は少し入ってすぐ出るべきだから中心はまずい
@@ -511,7 +320,7 @@ void get_path_from_dijkstra(const Stage& aStage, Path& path, int y1, int x1, int
                            {{0, -1, 0, 1}, {-1, 0, 1, 0}, {0, 1, 0, -1}, {1, 0, -1, 0}}};
         int dy[2][4][4] = {{{0, 1, 0, -1}, {1, 0, -1, 0}, {0, -1, 0, 1}, {-1, 0, 1, 0}},
                            {{1, 0, -1, 0}, {0, -1, 0, 1}, {-1, 0, 1, 0}, {0, 1, 0, -1}}};
-        int direction = get_direction(Vector2{(float)x+(float)0.5, (float)y+(float)0.5}, target);
+        int direction = get_direction(Vector2{(float)(x+0.5), (float)(y+0.5)}, target);
         const int turn = path.size() + init_dir;
 
         for(int i = 0; i < 4; i++){
@@ -582,19 +391,69 @@ void get_path_from_dijkstra(const Stage& aStage, Path& path, int y1, int x1, int
                     if(ter_org == ter_nxt){
                         tx = (x + nx + 1) / 2.0;
                         ty = (y + ny + 1) / 2.0;
+                        //if(x == nx){
+                        //    ty = (y + ny + 1) / 2.0;
+                        //    if((int)target.x == x)
+                        //        tx = (x + nx + 1) / 2.0;
+                        //    else if((int)target.x > x)
+                        //        tx = x + 1 - EPS;
+                        //    else
+                        //        tx = x;
+                        //}
+                        //else{
+                        //    tx = (x + nx + 1) / 2.0;
+                        //    if((int)target.y == y)
+                        //        ty = (y + ny + 1) / 2.0;
+                        //    else if((int)target.y > y)
+                        //        ty = y + 1 - EPS;
+                        //    else
+                        //        ty = y;
+                        //}
                     }
                     else if(ter_org < ter_nxt){
-                        //////TODO : もう少し簡単に
+                        //// TODO : ensemble???
                         tx = ((nx+0.5) + (1+EPS)*(x+0.5)) / (2. + EPS);
                         ty = ((ny+0.5) + (1+EPS)*(y+0.5)) / (2. + EPS);
-                        //tx = (1*(nx+0.5) + (x+0.5)) / 2.;
-                        //ty = (1*(ny+0.5) + (y+0.5)) / 2.;
+                        //if(x == nx){
+                        //    ty = ((ny+0.5) + (1+EPS)*(y+0.5)) / (2. + EPS);
+                        //    if((int)target.x == x)
+                        //        tx = (x + nx + 1) / 2.0;
+                        //    else if((int)target.x > x)
+                        //        tx = x + 1 - EPS;
+                        //    else
+                        //        tx = x;
+                        //}
+                        //else{
+                        //    tx = ((nx+0.5) + (1+EPS)*(x+0.5)) / (2. + EPS);
+                        //    if((int)target.y == y)
+                        //        ty = (y + ny + 1) / 2.0;
+                        //    else if((int)target.y > y)
+                        //        ty = y + 1 - EPS;
+                        //    else
+                        //        ty = y;
+                        //}
                     }
                     else{
                         tx = ((1+EPS)*(nx+0.5) + (x+0.5)) / (2. + EPS);
                         ty = ((1+EPS)*(ny+0.5) + (y+0.5)) / (2. + EPS);
-                        //tx = (1*(nx+0.5) + (x+0.5)) / 2.;
-                        //ty = (1*(ny+0.5) + (y+0.5)) / 2.;
+                        //if(x == nx){
+                        //    ty = ((1+EPS)*(ny+0.5) + (y+0.5)) / (2. + EPS);
+                        //    if((int)target.x == x)
+                        //        tx = (x + nx + 1) / 2.0;
+                        //    else if((int)target.x > x)
+                        //        tx = x + 1 - EPS;
+                        //    else
+                        //        tx = x;
+                        //}
+                        //else{
+                        //    tx = ((1+EPS)*(nx+0.5) + (x+0.5)) / (2. + EPS);
+                        //    if((int)target.y == y)
+                        //        ty = (y + ny + 1) / 2.0;
+                        //    else if((int)target.y > y)
+                        //        ty = y + 1 - EPS;
+                        //    else
+                        //        ty = y;
+                        //}
                     }
 
                     if(path.size() == 0 && src >= 0)
@@ -701,10 +560,6 @@ Vector2 next_path(const Stage& aStage, Path path, int& path_idx, Vector2 cur_pos
     }
     return target;
 }
-
-/// TODO : {U, R, D, L}から出発した際の
-/// 点間移動する際のウサギの通る座標 {rabbit, scroll01, scroll02, ...}
-//Path sequence[4][MAX_V][MAX_V];
 
 /// 点間の中心を移動する際のウサギの通る座標 {rabbit, scroll01, scroll02, ...}
 Path sequence_simple[MAX_V][MAX_V];
@@ -895,6 +750,7 @@ void tsp_2opt_simple(const Stage& aStage){
     }
 }
 
+/// xor128
 unsigned int randxor()
 {
     static unsigned int x=123456789, y=362436069, z=521288629, w=88675123;
@@ -969,10 +825,11 @@ void tsp_sa_simple(const Stage& aStage, int iteration){
     }
 }
 
-Vector2 Answer01(const Stage& aStage, bool path_init_dir, bool path_dest_center){
+Vector2 Answer01(const Stage& aStage, bool path_init_dir, bool path_dest_center, bool strict){
     static int path_idx;
     static Path path;
     auto pos = aStage.rabbit().pos();
+    /// targets配列の順番毎にpathに移動すべき点を格納
     if(aStage.turn() == 0 || same(pos, path[path.size()-1])){
         auto scrolls = aStage.scrolls();
         for(int i = 0; i < (int)targets.size(); i++){
@@ -993,6 +850,7 @@ Vector2 Answer01(const Stage& aStage, bool path_init_dir, bool path_dest_center)
         }
     }
 
+/// 到達可能な点の次の点を目標とする。
     Vector2 target;
     Terrain tar_terrain;
     Vector2 pre_point = pos;
@@ -1003,18 +861,16 @@ Vector2 Answer01(const Stage& aStage, bool path_init_dir, bool path_dest_center)
         tar_terrain = aStage.terrain(target);
 
         auto next = aStage.getNextPos(pos, aStage.rabbit().power(), target);
-        auto nex_terrain = aStage.terrain(next);
+        //auto nex_terrain = aStage.terrain(next);
 
         if(!first && tar_terrain > pre_terrain){
             target = pre_point;
             break;
         }
-        else if(path_idx+1 < (int)path.size() && same_float(target, next)){
+        else if(path_idx+1 < (int)path.size() && ((strict && same_float(target, next)) || (!strict && same(target, next)))){
             path_idx++;
         }
         else{
-            if(nex_terrain == tar_terrain)
-                target = next;
             break;
         }
 
@@ -1025,175 +881,13 @@ Vector2 Answer01(const Stage& aStage, bool path_init_dir, bool path_dest_center)
     return target;
 }
 
-/// うまくいかない
-Vector2 Answer02(const Stage& aStage){
-    static int path_idx;
-    static Path path;
-    auto pos = aStage.rabbit().pos();
-    static bool jump;
-    std::vector<hpc::Terrain> min_terrains;
-    static std::map<std::pair<int, int>, int> coord2idx;
-    if(aStage.turn() == 0 || same(pos, path[path.size()-1])){
-        auto scrolls = aStage.scrolls();
-        for(int i = 0; i < (int)targets.size(); i++){
-            int idx = targets[i];
-            auto scroll = scrolls[idx];
-            if (!scroll.isGotten()) {
-                path.clear();
-                if(i == (int)targets.size()-1)
-                    get_path_from_dijkstra(aStage, path, pos.y, pos.x, -1, idx, -1, false, false, false);
-                else
-                    get_path_from_dijkstra(aStage, path, pos.y, pos.x, -1, idx, -1, false, false, false);
-                path_idx = 0;
-                jump = false;
-                for(int k = 0; k < (int)path.size(); k++){
-                    auto coord = path[k];
-                    coord2idx[std::make_pair((int)coord.x, (int)coord.y)] = k;
-                }
-                break;
-            }
-        }
-    }
-
-    auto cur_terrain = aStage.terrain(pos);
-    int test_idx = coord2idx[std::make_pair((int)pos.x, (int)pos.y)];
-    hpc::Terrain test_terrain;
-    if(jump)
-        test_terrain = aStage.terrain(path[test_idx+1]);
-    else
-        test_terrain = aStage.terrain(pos);
-    for(; path_idx < (int)path.size(); path_idx++){
-        bool skip = false;
-        for(int i = test_idx+1; i < path_idx; i++){
-            auto tmp_terrain = aStage.terrain(path[i]);
-            if(test_terrain > tmp_terrain){
-                skip = true;
-                break;
-            }
-        }
-        if(skip) break;
-        /// destへ真っ直ぐ向かうべきか判定
-        auto tmp_pos = pos;
-        bool reach = true;
-        bool first = true;
-        while(1){
-            auto next = aStage.getNextPos(tmp_pos, aStage.rabbit().power(), path[path_idx]);
-            auto nex_terrain = aStage.terrain(next);
-            tmp_pos = next;
-            if(first && jump)
-                cur_terrain = nex_terrain;
-            if(same(tmp_pos, path[path_idx])){
-                break;
-            }
-            if(nex_terrain > cur_terrain){
-                reach = false;
-                break;
-            }
-            first = false;
-        }
-
-        if(!reach)
-            break;
-    }
-
-    auto next = aStage.getNextPos(pos, aStage.rabbit().power(), path[path_idx-1]);
-    if(same_float(next, path[path_idx-1]))
-        jump = true;
-    else
-        jump = false;
-    return path[path_idx-1];
-}
-
-Vector2 Answer03(const Stage& aStage){
-    static int path_idx;
-    static Path path;
-    auto pos = aStage.rabbit().pos();
-    static std::map<std::pair<int, int>, int> coord2idx;
-    static bool jump;
-    static bool reached;
-    if(aStage.turn() == 0 || same(pos, path[path.size()-1])){
-        auto scrolls = aStage.scrolls();
-        for(int i = 0; i < (int)targets.size(); i++){
-            int idx = targets[i];
-            auto scroll = scrolls[idx];
-            if (!scroll.isGotten()) {
-                path.clear();
-                if(i == (int)targets.size()-1)
-                    get_path_from_dijkstra(aStage, path, pos.y, pos.x, -1, idx, -1, false, false, false);
-                else
-                    get_path_from_dijkstra(aStage, path, pos.y, pos.x, -1, idx, -1, false, false, false);
-                path_idx = 0;
-                jump = false;
-                reached = true;
-                for(int k = 0; k < (int)path.size(); k++){
-                    auto coord = path[k];
-                    coord2idx[std::make_pair((int)coord.x, (int)coord.y)] = k;
-                }
-                break;
-            }
-        }
-    }
-
-    // large postk --> good for small num of vertices
-    // small postk --> good for large num of vertices
-    const int postk = 3;
-    auto p = std::make_pair((int)pos.x, (int)pos.y);
-    static Vector2 checkpoint;
-    //if(coord2idx.find(p) == coord2idx.end()){
-    if(!reached){
-        auto next = aStage.getNextPos(pos, aStage.rabbit().power(), checkpoint);
-        if(same(next, checkpoint))
-            reached = true;
-        return checkpoint;
-    }
-    else{
-        reached = false;
-        int cur_path_idx = coord2idx[p];
-        auto cur_terrain = aStage.terrain(pos);
-        // TODO merge
-        for(int k = postk; k >= 0; k--){
-            if(cur_path_idx + k >= (int)path.size())
-                continue;
-            int next_path_idx = cur_path_idx + k;
-            auto target = path[next_path_idx];
-            auto tmp_pos = pos;
-            bool valid = true;
-            while(1){
-                auto next = aStage.getNextPos(tmp_pos, aStage.rabbit().power(), target);
-                auto nex_terrain = aStage.terrain(next);
-                if(jump){
-                    jump = false;
-                    cur_terrain = nex_terrain;
-                }
-                if(same(next, target)){
-                    break;
-                }
-                else if(nex_terrain > cur_terrain){
-                    valid = false;
-                    break;
-                }
-                tmp_pos = next;
-            }
-
-            if(valid){
-                path_idx = next_path_idx;
-                jump = (k == 0);
-                break;
-            }
-        }
-
-        checkpoint = path[path_idx];
-        return path[path_idx];
-    }
-
-}
-
 Vector2 Answer04(const Stage& aStage, int postk, bool path_init_dir, bool path_dest_center){
     static int path_idx;
     static Path path;
     auto pos = aStage.rabbit().pos();
     static std::map<std::pair<int, int>, int> coord2idx;
     static bool jump;
+    /// targets配列の順番毎にpathに移動すべき点を格納
     if(aStage.turn() == 0 || same(pos, path[path.size()-1])){
         auto scrolls = aStage.scrolls();
         for(int i = 0; i < (int)targets.size(); i++){
@@ -1218,11 +912,9 @@ Vector2 Answer04(const Stage& aStage, int postk, bool path_init_dir, bool path_d
         }
     }
 
-    // large postk --> good for small num of vertices ??
-    // small postk --> good for large num of vertices ?? 
-    //const int postk = 5;
     auto p = std::make_pair((int)pos.x, (int)pos.y);
     static Vector2 checkpoint;
+    /// postk個先の点を目標とする。その際地形が悪化する場合は前の点を目標とする。
     if(coord2idx.find(p) == coord2idx.end()){
         return checkpoint;
     }
@@ -1267,70 +959,16 @@ Vector2 Answer04(const Stage& aStage, int postk, bool path_init_dir, bool path_d
 
 }
 
-/// answer01を改変
-Vector2 Answer05(const Stage& aStage, bool path_init_dir, bool path_dest_center){
-    static int path_idx;
-    static Path path;
-    auto pos = aStage.rabbit().pos();
-    if(aStage.turn() == 0 || same(pos, path[path.size()-1])){
-        auto scrolls = aStage.scrolls();
-        for(int i = 0; i < (int)targets.size(); i++){
-            int idx = targets[i];
-            auto scroll = scrolls[idx];
-            if (!scroll.isGotten()) {
-                path.clear();
-                int nex_dest = (i+1 < (int)targets.size()) ? targets[i+1] : -1;
-                if(i == (int)targets.size()-1)
-                    get_path_from_dijkstra(aStage, path, pos.y, pos.x, -1, idx, nex_dest, false, path_init_dir, path_dest_center);
-                else
-                    get_path_from_dijkstra(aStage, path, pos.y, pos.x, -1, idx, nex_dest, false, path_init_dir, path_dest_center);
-                path_idx = 0;
-                break;
-            }
-        }
-    }
-
-    Vector2 target;
-    Terrain tar_terrain;
-    Vector2 pre_point = pos;
-    Terrain pre_terrain = aStage.terrain(pre_point);
-    bool first = true;
-    while(1){
-        target = path[path_idx];
-        tar_terrain = aStage.terrain(target);
-
-        auto next = aStage.getNextPos(pos, aStage.rabbit().power(), target);
-        auto nex_terrain = aStage.terrain(next);
-
-        if(!first && tar_terrain > pre_terrain){
-            target = pre_point;
-            break;
-        }
-        else if(path_idx+1 < (int)path.size() && same(target, next)){
-            path_idx++;
-        }
-        else{
-            if(nex_terrain == tar_terrain)
-                target = next;
-            break;
-        }
-
-        pre_point = target;
-        pre_terrain = tar_terrain;
-        first = false;
-    }
-    return target;
-}
-
 /// 次の地点
+/// TODO : 地点毎にアンサンブル
 //#define NANSWER 14
 #define NANSWER 28
 //#define NANSWER 1
 Vector2 MygetTargetPos(const Stage& aStage, int n){
     assert(0 <= n && n < NANSWER);
     switch(n){
-        case 0 : return Answer01(aStage, true, false);
-        case 1 : return Answer01(aStage, false, false);
+        case 0 : return Answer01(aStage, true, false, true);
+        case 1 : return Answer01(aStage, false, false, true);
         case 2 : return Answer04(aStage, 3, false, false);
         case 3 : return Answer04(aStage, 4, false, false);
         case 4 : return Answer04(aStage, 5, false, false);
@@ -1341,11 +979,11 @@ Vector2 MygetTargetPos(const Stage& aStage, int n){
         case 9 : return Answer04(aStage, 5, true, false);
         case 10 : return Answer04(aStage, 8, true, false);
         case 11 : return Answer04(aStage, 12, true, false);
-        case 12 : return Answer05(aStage, true, false);
-        case 13 : return Answer05(aStage, false, false);
+        case 12 : return Answer01(aStage, true, false, false);
+        case 13 : return Answer01(aStage, false, false, false);
 
-        case 14 : return Answer01(aStage, true, true);
-        case 15 : return Answer01(aStage, false, true);
+        case 14 : return Answer01(aStage, true, true, true);
+        case 15 : return Answer01(aStage, false, true, true);
         case 16 : return Answer04(aStage, 3, false, true);
         case 17 : return Answer04(aStage, 4, false, true);
         case 18 : return Answer04(aStage, 5, false, true);
@@ -1356,46 +994,11 @@ Vector2 MygetTargetPos(const Stage& aStage, int n){
         case 23 : return Answer04(aStage, 5, true, true);
         case 24 : return Answer04(aStage, 8, true, true);
         case 25 : return Answer04(aStage, 12, true, true);
-        case 26 : return Answer05(aStage, true, true);
-        case 27 : return Answer05(aStage, false, true);
+        case 26 : return Answer01(aStage, true, true, false);
+        case 27 : return Answer01(aStage, false, true, false);
     }
     assert(true);
-    return Answer01(aStage, true, true);
-    
-    //if(n == 0)
-    //    return Answer01(aStage, true, false);
-    //else if(n == 1)
-    //    return Answer01(aStage, false, false);
-    //////else if(n == 2)
-    //////    return Answer04(aStage, 2, false, false);
-    //else if(n == 3)
-    //    return Answer04(aStage, 3, false, false);
-    //else if(n == 4)
-    //    return Answer04(aStage, 4, false, false);
-    //else if(n == 5)
-    //    return Answer04(aStage, 5, false, false);
-    //else if(n == 6)
-    //    return Answer04(aStage, 8, false, false);
-    //else if(n == 7)
-    //    return Answer04(aStage, 12, false, false);
-    //////else if(n == 8)
-    //////    return Answer04(aStage, 2, true, false);
-    //else if(n == 9)
-    //    return Answer04(aStage, 3, true, false);
-    //else if(n == 10)
-    //    return Answer04(aStage, 4, true, false);
-    //else if(n == 11)
-    //    return Answer04(aStage, 5, true, false);
-    //else if(n == 12)
-    //    return Answer04(aStage, 8, true, false);
-    //else if(n == 13)
-    //    return Answer04(aStage, 12, true, false);
-    //else if(n == 14)
-    //    return Answer05(aStage, true, false);
-    //else if(n == 15)
-    //    return Answer05(aStage, false, false);
-    //else
-    //    return Answer01(aStage, true, false);
+    return Answer01(aStage, true, true, true);
 }
 
 
@@ -1417,15 +1020,6 @@ Answer::Answer()
 Answer::~Answer()
 {
 }
-
-// for getTragetPos
-//Path path;
-//int path_idx = 0;
-//bool big_jump;
-
-/// TODO : Game Emulation
-/// targets配列の順序をランダムに変えてみる？
-
 /// for choosing path algo
 int answer;
 
@@ -1433,39 +1027,30 @@ int answer;
 /// 各ステージ開始時に呼び出される処理
 /// @detail 各ステージに対する初期化処理が必要ならここに書きます
 /// @param aStage 現在のステージ
-int test_idx;
 void Answer::initialize(const Stage& aStage)
 {
-    test_idx++;
+    //static int test_idx++;
     //printf("test : %d\n", test_idx);
 
-    // {rabbit, scroll0, scroll1, ...}
+    /// {rabbit, scroll0, scroll1, ...}のようにvertices配列にそれぞれの座標を格納
     Ver vertices;
     vertices_init(vertices, aStage);
 
+    /// 各マス毎に{移動先、辺の重み}をGraph配列に格納
     make_graph(aStage);
+    /// 各巻物からすべてのマスへの最短距離を求める
     for(int v = 0; v < (int)aStage.scrolls().count(); v++)
         dijkstra(aStage, v);
+    /// ウサギ&巻物 間の距離をdistance配列に格納
     calc_distance_dijkstra(aStage, vertices);
 
     build_all_dijkstra_path(aStage);
-
-    //calc_distance_greedy(vertices);
-    //const std::vector<double> Theta = {M_PI*sqrt(3.0/4), M_PI/6, 0};
-    //const int topk = 10;
-    //calc_distance_search_topk(aStage, vertices, topk, Theta);
-
-    //sales_man_init(vertices.size());
-    //sales_man_scroll(1 << 0, 0, vertices.size());
-    //build_target_sequence_from_tsp();
-    //update_path_from_targets(aStage);
-    //tsp_2opt(aStage);
 
     const int nscrolls = aStage.scrolls().count();
     targets_init(aStage);
     if(nscrolls >= 3){
         //sales_man_init(vertices.size());
-        //sales_man_scroll(1 << 0, 0, vertices.size());
+        //sales_man(1 << 0, 0, vertices.size());
         //build_target_sequence_from_tsp();
         //update_path_from_targets(aStage);
     
@@ -1473,18 +1058,20 @@ void Answer::initialize(const Stage& aStage)
         int best_score = 100000;
         //const int iteration = 2500000;
         // 十分っぽい
-        //// 28049
+        //// 27307
         //const int iteration = 500000;
-        //// 28060
+        //// 27340
         const int iteration = 50000;
         //const int nloop = (nscrolls < 8) ? 1 : 1;
         //// 28060
         const int nloop = (nscrolls < 8) ? 10 : 30;
         //// 28012
         //const int nloop = (nscrolls < 8) ? 30 : 90;
+        /// nloop個回探索
         for(int i = 0; i < nloop; i++){
             targets_shuffle(aStage);
 
+            /// SA法をなどを用いて探索
             tsp_sa_simple(aStage, iteration);
             tsp_2opt_simple(aStage);
 
@@ -1496,7 +1083,7 @@ void Answer::initialize(const Stage& aStage)
             if(new_dist > dist)
                 targets = _targets;
 
-            //TODO : test
+            /// NANSWER個の移動アルゴリズムから最も良いものを選択
             for(int k = 0; k < NANSWER; k++){
                 EmulateGame eGame(aStage);
                 int score = eGame.run(k);
@@ -1513,16 +1100,9 @@ void Answer::initialize(const Stage& aStage)
 
     }
     else{
-        //float min_dist = 1e10;
-        //std::vector<int> _targets;
         int best_score = 100000;
         std::vector<int> best_targets;
         do{
-            //float new_dist = path_length_from_dijkstra(aStage);
-            //if(new_dist < min_dist){
-            //    _targets = targets;
-            //    min_dist = new_dist;
-            //}
             for(int k = 0; k < NANSWER; k++){
                 EmulateGame eGame(aStage);
                 int score = eGame.run(k);
@@ -1533,7 +1113,6 @@ void Answer::initialize(const Stage& aStage)
                 }
             }
         }while(std::next_permutation(targets.begin(), targets.end()));
-        //targets = _targets;
         targets = best_targets;
     }
 }
