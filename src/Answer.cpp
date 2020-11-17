@@ -85,7 +85,7 @@ Vector2 MygetTargetPos(const Stage& aStage, int n);
 /// nth_answer で指定された方法で経路を決定
 Vector2 execute_answer(const Stage& aStage, int nth_answer, Path path, Vector2 cur_pos, float cur_power, bool init, bool strict, int postk);
 /// 各answerで最もよいものをanswersに格納. 全体でかかるターン数を返す
-int search_best_answers(const Stage& aStage, int nth_loop);
+int search_best_answers(const Stage& aStage, int nth_loop, bool record);
 
 
 ////////////////////////////////////////////////////////////////////////
@@ -304,11 +304,7 @@ int get_direction(Vector2 src, Vector2 dest){
 
 /// {y1, x1} から scrolls[dest] までの経路を復元.
 /// TODO : 何らかのパラメータでアンサンブル
-/// 最後の地点の設定
-/// 4隅をうまく使えないか？
-/// TODO : 最後の地点ではなく、次に曲がる方向に寄っておく
-Vector2 first_step[MAX_V];
-void get_path_from_dijkstra(const Stage& aStage, Path& path, int y1, int x1, int src, int dest, int dest2, bool insert_first, bool init_dir, bool set_dest_center){
+void get_path_from_dijkstra(const Stage& aStage, Path& path, int y1, int x1, int src, int dest, int dest2, bool insert_first, bool init_dir, bool set_dest_center, bool simple_path){
     assert(src == -1);
     //TODO : 最初の地点を保存？
     int d = dist_scroll[dest][y1][x1];
@@ -393,75 +389,83 @@ void get_path_from_dijkstra(const Stage& aStage, Path& path, int y1, int x1, int
                     auto ter_org = aStage.terrain(Vector2{x+EPS, y+EPS});
                     auto ter_nxt = aStage.terrain(Vector2{nx+EPS, ny+EPS});
                     if(ter_org == ter_nxt){
-                        tx = (x + nx + 1) / 2.0;
-                        ty = (y + ny + 1) / 2.0;
-                        //if(x == nx){
-                        //    ty = (y + ny + 1) / 2.0;
-                        //    if((int)target.x == x)
-                        //        tx = (x + nx + 1) / 2.0;
-                        //    else if((int)target.x > x)
-                        //        tx = x + 1 - EPS;
-                        //    else
-                        //        tx = x;
-                        //}
-                        //else{
-                        //    tx = (x + nx + 1) / 2.0;
-                        //    if((int)target.y == y)
-                        //        ty = (y + ny + 1) / 2.0;
-                        //    else if((int)target.y > y)
-                        //        ty = y + 1 - EPS;
-                        //    else
-                        //        ty = y;
-                        //}
+                        if(simple_path){
+                            tx = (x + nx + 1) / 2.0;
+                            ty = (y + ny + 1) / 2.0;
+                        }
+                        else{
+                            if(x == nx){
+                                ty = (y + ny + 1) / 2.0;
+                                if((int)target.x == x)
+                                    tx = (x + nx + 1) / 2.0;
+                                else if((int)target.x > x)
+                                    tx = x + 1 - EPS;
+                                else
+                                    tx = x;
+                            }
+                            else{
+                                tx = (x + nx + 1) / 2.0;
+                                if((int)target.y == y)
+                                    ty = (y + ny + 1) / 2.0;
+                                else if((int)target.y > y)
+                                    ty = y + 1 - EPS;
+                                else
+                                    ty = y;
+                            }
+                        }
                     }
                     else if(ter_org < ter_nxt){
-                        //// TODO : ensemble???
-                        tx = ((nx+0.5) + (1+EPS)*(x+0.5)) / (2. + EPS);
-                        ty = ((ny+0.5) + (1+EPS)*(y+0.5)) / (2. + EPS);
-                        //if(x == nx){
-                        //    ty = ((ny+0.5) + (1+EPS)*(y+0.5)) / (2. + EPS);
-                        //    if((int)target.x == x)
-                        //        tx = (x + nx + 1) / 2.0;
-                        //    else if((int)target.x > x)
-                        //        tx = x + 1 - EPS;
-                        //    else
-                        //        tx = x;
-                        //}
-                        //else{
-                        //    tx = ((nx+0.5) + (1+EPS)*(x+0.5)) / (2. + EPS);
-                        //    if((int)target.y == y)
-                        //        ty = (y + ny + 1) / 2.0;
-                        //    else if((int)target.y > y)
-                        //        ty = y + 1 - EPS;
-                        //    else
-                        //        ty = y;
-                        //}
+                        if(simple_path){
+                            tx = ((nx+0.5) + (1+EPS)*(x+0.5)) / (2. + EPS);
+                            ty = ((ny+0.5) + (1+EPS)*(y+0.5)) / (2. + EPS);
+                        }
+                        else{
+                            if(x == nx){
+                                ty = ((ny+0.5) + (1+EPS)*(y+0.5)) / (2. + EPS);
+                                if((int)target.x == x)
+                                    tx = (x + nx + 1) / 2.0;
+                                else if((int)target.x > x)
+                                    tx = x + 1 - EPS;
+                                else
+                                    tx = x;
+                            }
+                            else{
+                                tx = ((nx+0.5) + (1+EPS)*(x+0.5)) / (2. + EPS);
+                                if((int)target.y == y)
+                                    ty = (y + ny + 1) / 2.0;
+                                else if((int)target.y > y)
+                                    ty = y + 1 - EPS;
+                                else
+                                    ty = y;
+                            }
+                        }
                     }
                     else{
-                        tx = ((1+EPS)*(nx+0.5) + (x+0.5)) / (2. + EPS);
-                        ty = ((1+EPS)*(ny+0.5) + (y+0.5)) / (2. + EPS);
-                        //if(x == nx){
-                        //    ty = ((1+EPS)*(ny+0.5) + (y+0.5)) / (2. + EPS);
-                        //    if((int)target.x == x)
-                        //        tx = (x + nx + 1) / 2.0;
-                        //    else if((int)target.x > x)
-                        //        tx = x + 1 - EPS;
-                        //    else
-                        //        tx = x;
-                        //}
-                        //else{
-                        //    tx = ((1+EPS)*(nx+0.5) + (x+0.5)) / (2. + EPS);
-                        //    if((int)target.y == y)
-                        //        ty = (y + ny + 1) / 2.0;
-                        //    else if((int)target.y > y)
-                        //        ty = y + 1 - EPS;
-                        //    else
-                        //        ty = y;
-                        //}
+                        if(simple_path){
+                            tx = ((1+EPS)*(nx+0.5) + (x+0.5)) / (2. + EPS);
+                            ty = ((1+EPS)*(ny+0.5) + (y+0.5)) / (2. + EPS);
+                        }
+                        else{
+                            if(x == nx){
+                                ty = ((1+EPS)*(ny+0.5) + (y+0.5)) / (2. + EPS);
+                                if((int)target.x == x)
+                                    tx = (x + nx + 1) / 2.0;
+                                else if((int)target.x > x)
+                                    tx = x + 1 - EPS;
+                                else
+                                    tx = x;
+                            }
+                            else{
+                                tx = ((1+EPS)*(nx+0.5) + (x+0.5)) / (2. + EPS);
+                                if((int)target.y == y)
+                                    ty = (y + ny + 1) / 2.0;
+                                else if((int)target.y > y)
+                                    ty = y + 1 - EPS;
+                                else
+                                    ty = y;
+                            }
+                        }
                     }
-
-                    if(path.size() == 0 && src >= 0)
-                        first_step[src] = Vector2{tx, ty};
 
                     path.push_back(Vector2{tx, ty});
                     d = nd, y = ny, x = nx;
@@ -619,7 +623,6 @@ void targets_shuffle(const Stage& aStage){
     }
 }
 
-/// TODO : 部分的な高速計算？
 /// 終了までに要するターン数を計算
 int path_length(const Stage& aStage){
     const int nscrolls = aStage.scrolls().count();
@@ -718,7 +721,7 @@ void change_vertex_simple(const Stage& aStage, int v1, int v2){
     std::swap(targets[v1], targets[v2]);
 }
 
-/// 2-opt法でTSPを解く (1.404sec)
+/// 2-opt法でTSPを解く 
 void tsp_2opt(const Stage& aStage){
     const int nscrolls = aStage.scrolls().count();
     if(nscrolls > 1){
@@ -748,7 +751,7 @@ void tsp_2opt(const Stage& aStage){
     }
 }
 
-/// 2-opt法でTSPを解く (1.404sec)
+/// 2-opt法でTSPを解く 
 void tsp_2opt_simple(const Stage& aStage){
     const int nscrolls = aStage.scrolls().count();
     if(nscrolls > 1){
@@ -827,7 +830,8 @@ void tsp_sa(const Stage& aStage, int iteration){
 void tsp_sa_simple(const Stage& aStage, int iteration){
     const int N = aStage.scrolls().count();
 
-    const double startTemp = 1000;
+    /// 26555
+    const double startTemp = 100;
     const double endTemp = 1;
     const int R = 100000;
     const int T = iteration;
@@ -852,17 +856,17 @@ void tsp_sa_simple(const Stage& aStage, int iteration){
 }
 
 /// TODO : profiling
-/// SA法でTSPを解く. 評価には実際にかかるターン数を用いる。
+/// SA法でTSPを解く. 評価には実際にかかるターン数を用いる。未使用
 int tsp_sa_simple_ensemble(const Stage& aStage, int iteration, int nth_loop){
     const int N = aStage.scrolls().count();
 
-    const double startTemp = 100;
+    const double startTemp = 5;
     const double endTemp = 1;
     const int R = 100000;
     const int T = iteration;
 
     //float nstep = path_length(aStage);
-    int nturn = search_best_answers(aStage, nth_loop);
+    int nturn = search_best_answers(aStage, nth_loop, false);
     for(int t = 0; t < iteration; t++){
         int v1 = randxor() % N, v2 = randxor() % N;
         while(v1 == v2)
@@ -870,7 +874,7 @@ int tsp_sa_simple_ensemble(const Stage& aStage, int iteration, int nth_loop){
 
         change_vertex_simple(aStage, v1, v2);
         //// TODO : 一部だけ変更
-        int new_nturn = search_best_answers(aStage, nth_loop);
+        int new_nturn = search_best_answers(aStage, nth_loop, false);
 
         double temp = startTemp + (endTemp - startTemp) * t / T;
         double probability = exp((nturn - new_nturn) / temp);
@@ -989,13 +993,14 @@ Vector2 execute_answer(const Stage& aStage, int nth_answer, Path path, Vector2 c
         return path[path.size()-1];
     }
     else{
+        printf("Ans number : %d\n", nth_answer);
         assert(false);
     }
     return Vector2{-1, -1};
 }
 
-#define NANSWER 29
-void set_ensemble_parameters(int n, int& nth_answer, bool& strict, int& postk, bool& path_init_dir, bool& path_dest_center, bool& update){
+#define NANSWER 58
+void set_ensemble_parameters(int n, int& nth_answer, bool& strict, int& postk, bool& path_init_dir, bool& path_dest_center, bool& update, bool& simple_path){
     assert(0 <= n && n < NANSWER);
     switch(n){
         case 0 :  update = true, nth_answer = 1, path_init_dir = true,  path_dest_center = false, strict = true; break;
@@ -1012,33 +1017,71 @@ void set_ensemble_parameters(int n, int& nth_answer, bool& strict, int& postk, b
         case 11 : update = false, nth_answer = 4, postk = 12, path_init_dir = true,  path_dest_center = false; break;
         case 12 : update = true, nth_answer = 1, path_init_dir = true,  path_dest_center = false, strict = false; break;
         case 13 : update = true, nth_answer = 1, path_init_dir = false, path_dest_center = false, strict = false; break;
+        // いらないかも
+        case 14 : update = false, nth_answer = 5; break;
 
-        case 14 : update = true, nth_answer = 1, path_init_dir = true,  path_dest_center = true, strict = true; break;
-        case 15 : update = true, nth_answer = 1, path_init_dir = false, path_dest_center = true, strict = true; break;
-        case 16 : update = true, nth_answer = 4, postk = 3,  path_init_dir = false, path_dest_center = true; break;
-        case 17 : update = false, nth_answer = 4, postk = 4,  path_init_dir = false, path_dest_center = true; break;
-        case 18 : update = false, nth_answer = 4, postk = 5,  path_init_dir = false, path_dest_center = true; break;
-        case 19 : update = false, nth_answer = 4, postk = 8,  path_init_dir = false, path_dest_center = true; break;
-        case 20 : update = false, nth_answer = 4, postk = 12, path_init_dir = false, path_dest_center = true; break;
-        case 21 : update = true, nth_answer = 4, postk = 3,  path_init_dir = true,  path_dest_center = true; break;
-        case 22 : update = false, nth_answer = 4, postk = 4,  path_init_dir = true,  path_dest_center = true; break;
-        case 23 : update = false, nth_answer = 4, postk = 5,  path_init_dir = true,  path_dest_center = true; break;
-        case 24 : update = false, nth_answer = 4, postk = 8,  path_init_dir = true,  path_dest_center = true; break;
-        case 25 : update = false, nth_answer = 4, postk = 12, path_init_dir = true,  path_dest_center = true; break;
-        case 26 : update = true, nth_answer = 1, path_init_dir = true,  path_dest_center = true, strict = false; break;
-        case 27 : update = true, nth_answer = 1, path_init_dir = false, path_dest_center = true, strict = false; break;
-        case 28 : update = false, nth_answer = 5; break;
-        //default : update = true, nth_answer = 1, path_init_dir = true,  path_dest_center = false, strict = true; break;
+        case 15 : update = true, nth_answer = 1, path_init_dir = true,  path_dest_center = true, strict = true; break;
+        case 16 : update = true, nth_answer = 1, path_init_dir = false, path_dest_center = true, strict = true; break;
+        case 17 : update = true, nth_answer = 4, postk = 3,  path_init_dir = false, path_dest_center = true; break;
+        case 18 : update = false, nth_answer = 4, postk = 4,  path_init_dir = false, path_dest_center = true; break;
+        case 19 : update = false, nth_answer = 4, postk = 5,  path_init_dir = false, path_dest_center = true; break;
+        case 20 : update = false, nth_answer = 4, postk = 8,  path_init_dir = false, path_dest_center = true; break;
+        case 21 : update = false, nth_answer = 4, postk = 12, path_init_dir = false, path_dest_center = true; break;
+        case 22 : update = true, nth_answer = 4, postk = 3,  path_init_dir = true,  path_dest_center = true; break;
+        case 23 : update = false, nth_answer = 4, postk = 4,  path_init_dir = true,  path_dest_center = true; break;
+        case 24 : update = false, nth_answer = 4, postk = 5,  path_init_dir = true,  path_dest_center = true; break;
+        case 25 : update = false, nth_answer = 4, postk = 8,  path_init_dir = true,  path_dest_center = true; break;
+        case 26 : update = false, nth_answer = 4, postk = 12, path_init_dir = true,  path_dest_center = true; break;
+        case 27 : update = true, nth_answer = 1, path_init_dir = true,  path_dest_center = true, strict = false; break;
+        case 28 : update = true, nth_answer = 1, path_init_dir = false, path_dest_center = true, strict = false; break;
+        case 29 : update = false, nth_answer = 5; break;
+
+        case 30 :  update = true, nth_answer = 1, path_init_dir = true,  path_dest_center = false, strict = true; break;
+        case 31 :  update = true, nth_answer = 1, path_init_dir = false, path_dest_center = false, strict = true; break;
+        case 32 :  update = true, nth_answer = 4, postk = 3,  path_init_dir = false, path_dest_center = false; break;
+        case 33 :  update = false, nth_answer = 4, postk = 4,  path_init_dir = false, path_dest_center = false; break;
+        case 34 :  update = false, nth_answer = 4, postk = 5,  path_init_dir = false, path_dest_center = false; break;
+        case 35 :  update = false, nth_answer = 4, postk = 8,  path_init_dir = false, path_dest_center = false; break;
+        case 36 :  update = false, nth_answer = 4, postk = 12, path_init_dir = false, path_dest_center = false; break;
+        case 37 :  update = true, nth_answer = 4, postk = 3,  path_init_dir = true,  path_dest_center = false; break;
+        case 38 :  update = false, nth_answer = 4, postk = 4,  path_init_dir = true,  path_dest_center = false; break;
+        case 39 :  update = false, nth_answer = 4, postk = 5,  path_init_dir = true,  path_dest_center = false; break;
+        case 40 : update = false, nth_answer = 4, postk = 8,  path_init_dir = true,  path_dest_center = false; break;
+        case 41 : update = false, nth_answer = 4, postk = 12, path_init_dir = true,  path_dest_center = false; break;
+        case 42 : update = true, nth_answer = 1, path_init_dir = true,  path_dest_center = false, strict = false; break;
+        case 43 : update = true, nth_answer = 1, path_init_dir = false, path_dest_center = false, strict = false; break;
+
+        case 44 : update = true, nth_answer = 1, path_init_dir = true,  path_dest_center = true, strict = true; break;
+        case 45 : update = true, nth_answer = 1, path_init_dir = false, path_dest_center = true, strict = true; break;
+        case 46 : update = true, nth_answer = 4, postk = 3,  path_init_dir = false, path_dest_center = true; break;
+        case 47 : update = false, nth_answer = 4, postk = 4,  path_init_dir = false, path_dest_center = true; break;
+        case 48 : update = false, nth_answer = 4, postk = 5,  path_init_dir = false, path_dest_center = true; break;
+        case 49 : update = false, nth_answer = 4, postk = 8,  path_init_dir = false, path_dest_center = true; break;
+        case 50 : update = false, nth_answer = 4, postk = 12, path_init_dir = false, path_dest_center = true; break;
+        case 51 : update = true, nth_answer = 4, postk = 3,  path_init_dir = true,  path_dest_center = true; break;
+        case 52 : update = false, nth_answer = 4, postk = 4,  path_init_dir = true,  path_dest_center = true; break;
+        case 53 : update = false, nth_answer = 4, postk = 5,  path_init_dir = true,  path_dest_center = true; break;
+        case 54 : update = false, nth_answer = 4, postk = 8,  path_init_dir = true,  path_dest_center = true; break;
+        case 55 : update = false, nth_answer = 4, postk = 12, path_init_dir = true,  path_dest_center = true; break;
+        case 56 : update = true, nth_answer = 1, path_init_dir = true,  path_dest_center = true, strict = false; break;
+        case 57 : update = true, nth_answer = 1, path_init_dir = false, path_dest_center = true, strict = false; break;
+        default : printf("n = %d\n", n); assert(false); break;
     }
+
+    if(0 <= n && n < 30)
+        simple_path = true;
+    else
+        simple_path = false;
 }
 
-int answers[30];
+//int answers[30];
 Path ans_path[100];
 int ans_num;
 
-/// 各answerで最もよいものをanswersに格納. 全体でかかるターン数を返す
-int search_best_answers(const Stage& aStage, int nth_loop){
-    ans_path[nth_loop].clear();
+/// 各answerで最もよいものをans_pathに格納. 全体でかかるターン数を返す
+int search_best_answers(const Stage& aStage, int nth_loop, bool record){
+    if(record)
+        ans_path[nth_loop].clear();
     auto scrolls = aStage.scrolls();
     auto cur_pos = aStage.rabbit().pos();
     int total_turns = 0;
@@ -1068,20 +1111,19 @@ int search_best_answers(const Stage& aStage, int nth_loop){
             bool path_init_dir = false; 
             bool path_dest_center = false;
             bool update = false;
+            bool simple_path = true;
 
-            set_ensemble_parameters(n, nth_answer, strict, postk, path_init_dir, path_dest_center, update);
+            set_ensemble_parameters(n, nth_answer, strict, postk, path_init_dir, path_dest_center, update, simple_path);
 
             ////TODO : skip if using same path
             if(update){
                 path.clear();
-                get_path_from_dijkstra(aStage, path, tmp_pos.y, tmp_pos.x, -1, dest, nex_dest, nth_answer == 4, path_init_dir, path_dest_center);
+                get_path_from_dijkstra(aStage, path, tmp_pos.y, tmp_pos.x, -1, dest, nex_dest, nth_answer == 4, path_init_dir, path_dest_center, simple_path);
             }
 
             int current_turn = 0;
-            //while (!stage.isEnd() && stage.turn() < Parameter::GameTurnLimit && !stage.isOutOfBounds(stage.rabbit().pos())) {
             while (!same(scroll.pos(), tmp_pos) && current_turn < Parameter::GameTurnLimit) {
                 // ターン開始
-                //auto targetPos = MygetTargetPos(stage, n);
                 auto targetPos = execute_answer(aStage, nth_answer, path, tmp_pos, power, init, strict, postk);
                 tmp_pos = aStage.getNextPos(tmp_pos, power, targetPos);
                 checkpoints[n].push_back(tmp_pos);
@@ -1096,13 +1138,12 @@ int search_best_answers(const Stage& aStage, int nth_loop){
                 best_last_pos = tmp_pos;
             }
         }
-        //printf("best : %d\n", best_answer);
-        answers[i] = best_answer;
         cur_pos = best_last_pos;
         total_turns += best_turn;
-        for(auto&& v : checkpoints[best_answer])
-            ans_path[nth_loop].push_back(v);
-        //printf("path size : %d\n", (int)ans_path[nth_loop].size());
+        if(record){
+            for(auto&& v : checkpoints[best_answer])
+                ans_path[nth_loop].push_back(v);
+        }
     }
 
     return total_turns;
@@ -1136,6 +1177,11 @@ int answer;
 /// @param aStage 現在のステージ
 void Answer::initialize(const Stage& aStage)
 {
+    /*
+     * targets配列に巻物を取る順番を記録し、それに応じてans_path配列に実際のウサギの移動する座標を格納する。
+     * getTargetPos関数ではans_path配列の動きをそのまま再現する.
+     */
+    
     //static int test_idx++;
     //printf("test : %d\n", test_idx);
 
@@ -1151,22 +1197,32 @@ void Answer::initialize(const Stage& aStage)
     /// ウサギ&巻物 間の距離をdistance配列に格納
     calc_distance_dijkstra(aStage, vertices);
 
+    /// dijkstra法での最適なpathを全点間で作成
     build_all_dijkstra_path(aStage);
 
     const int nscrolls = aStage.scrolls().count();
     targets_init(aStage);
     if(nscrolls >= 3){
         int best_score = 100000;
-        // 26642 
-        const int iteration = 50000;
+        // 26642, 26595 
+        //const int iteration = 50000;
+        // 26592
+        //const int iteration = 25000;
+        // 26564
+        const int iteration = 12000;
+        // 26578
+        //const int iteration = 5000;
         // 26638
         //const int iteration = 100000;
         // 26618
         //const int iteration = 500000;
-        const int nloop = (nscrolls < 8) ? 10 : 30;
+        //const int nloop = (nscrolls < 8) ? 10 : 30;
+        const int nloop = (nscrolls < 8) ? 50 : 90;
+        //const int nloop = (nscrolls < 8) ? 60 : 100;
         // 26613
         //const int nloop = (nscrolls < 8) ? 10 : 60;
         //const int nloop = (nscrolls < 8) ? 1 : 1;
+        //std::vector<int> best_targets;
         /// nloop個回探索
         for(int i = 0; i < nloop; i++){
             targets_shuffle(aStage);
@@ -1184,27 +1240,30 @@ void Answer::initialize(const Stage& aStage)
             //////if(new_dist > dist)
             //////    targets = _targets;
 
-            /// NANSWER個の移動アルゴリズムから最も良いものを選択
-            int score = search_best_answers(aStage, i);
+            //// NANSWER個の移動アルゴリズムから最も良いものを選択
+            int score = search_best_answers(aStage, i, true);
             if(score < best_score){
                 best_score = score;
                 ans_num = i;
             }
             //*/
             /*
-            int score = tsp_sa_simple_ensemble(aStage, iteration, i);
+            int score = tsp_sa_simple_ensemble(aStage, 30, i);
             if(score < best_score){
                 best_score = score;
                 ans_num = i;
+                best_targets = targets;
             }
             */
         }
+        //targets = best_targets;
+        //search_best_answers(aStage, ans_num, true);
     }
     else{
         int best_score = 100000;
         int idx = 0;
         do{
-            search_best_answers(aStage, idx);
+            search_best_answers(aStage, idx, true);
             int score = ans_path[idx].size();
             if(score < best_score){
                 best_score = score;
