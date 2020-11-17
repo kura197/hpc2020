@@ -82,6 +82,10 @@ void tsp_2opt(const Stage& aStage);
 /// 2-opt法でTSPを解く (1.404sec)
 void tsp_2opt_simple(const Stage& aStage);
 Vector2 MygetTargetPos(const Stage& aStage, int n);
+/// nth_answer で指定された方法で経路を決定
+Vector2 execute_answer(const Stage& aStage, int nth_answer, Path path, Vector2 cur_pos, float cur_power, bool init, bool strict, int postk);
+/// 各answerで最もよいものをanswersに格納. 全体でかかるターン数を返す
+int search_best_answers(const Stage& aStage, int nth_loop);
 
 
 ////////////////////////////////////////////////////////////////////////
@@ -819,11 +823,11 @@ void tsp_sa(const Stage& aStage, int iteration){
     }
 }
 
-/// SA法でTSPを解く
+/// SA法でTSPを解く. 評価にはdijkstra方で算出したマス数を用いる。
 void tsp_sa_simple(const Stage& aStage, int iteration){
     const int N = aStage.scrolls().count();
 
-    const double startTemp = 100;
+    const double startTemp = 1000;
     const double endTemp = 1;
     const int R = 100000;
     const int T = iteration;
@@ -834,8 +838,6 @@ void tsp_sa_simple(const Stage& aStage, int iteration){
         while(v1 == v2)
             v1 = randxor() % N, v2 = randxor() % N;
 
-        //change_vertex_simple(aStage, v1, v2);
-        //float new_nstep = path_length_from_dijkstra(aStage);
         float new_nstep = path_length_from_dijkstra(aStage, v1, v2, nstep);
 
         double temp = startTemp + (endTemp - startTemp) * t / T;
@@ -846,10 +848,42 @@ void tsp_sa_simple(const Stage& aStage, int iteration){
             change_vertex_simple(aStage, v1, v2);
             nstep = new_nstep;
         }
+    }
+}
+
+/// TODO : profiling
+/// SA法でTSPを解く. 評価には実際にかかるターン数を用いる。
+int tsp_sa_simple_ensemble(const Stage& aStage, int iteration, int nth_loop){
+    const int N = aStage.scrolls().count();
+
+    const double startTemp = 100;
+    const double endTemp = 1;
+    const int R = 100000;
+    const int T = iteration;
+
+    //float nstep = path_length(aStage);
+    int nturn = search_best_answers(aStage, nth_loop);
+    for(int t = 0; t < iteration; t++){
+        int v1 = randxor() % N, v2 = randxor() % N;
+        while(v1 == v2)
+            v1 = randxor() % N, v2 = randxor() % N;
+
+        change_vertex_simple(aStage, v1, v2);
+        //// TODO : 一部だけ変更
+        int new_nturn = search_best_answers(aStage, nth_loop);
+
+        double temp = startTemp + (endTemp - startTemp) * t / T;
+        double probability = exp((nturn - new_nturn) / temp);
+        bool force_next = probability > (double)(randxor() % R) / R;
+
+        if(new_nturn < nturn || force_next){
+            nturn = new_nturn;
+        }
         else{
-            //change_vertex_simple(aStage, v1, v2);
+            change_vertex_simple(aStage, v1, v2);
         }
     }
+    return nturn;
 }
 
 /// nth_answer で指定された方法で経路を決定
@@ -893,6 +927,7 @@ Vector2 execute_answer(const Stage& aStage, int nth_answer, Path path, Vector2 c
         return target;
     }
     else if(nth_answer == 4){
+        /// postk個先の点を目標とする。その際地形が悪化する場合は前の点を目標とする。
         static std::map<std::pair<int, int>, int> coord2idx;
         static int jump;
         if(init){
@@ -906,7 +941,7 @@ Vector2 execute_answer(const Stage& aStage, int nth_answer, Path path, Vector2 c
 
         auto p = std::make_pair((int)pos.x, (int)pos.y);
         static Vector2 checkpoint;
-        /// postk個先の点を目標とする。その際地形が悪化する場合は前の点を目標とする。
+        
         if(coord2idx.find(p) == coord2idx.end()){
             return checkpoint;
         }
@@ -949,13 +984,17 @@ Vector2 execute_answer(const Stage& aStage, int nth_answer, Path path, Vector2 c
             return path[path_idx];
         }
     }
+    else if(nth_answer == 5){
+        /// 目標へ真っ直ぐ向かう
+        return path[path.size()-1];
+    }
     else{
         assert(false);
     }
     return Vector2{-1, -1};
 }
 
-#define NANSWER 28
+#define NANSWER 29
 void set_ensemble_parameters(int n, int& nth_answer, bool& strict, int& postk, bool& path_init_dir, bool& path_dest_center, bool& update){
     assert(0 <= n && n < NANSWER);
     switch(n){
@@ -988,12 +1027,13 @@ void set_ensemble_parameters(int n, int& nth_answer, bool& strict, int& postk, b
         case 25 : update = false, nth_answer = 4, postk = 12, path_init_dir = true,  path_dest_center = true; break;
         case 26 : update = true, nth_answer = 1, path_init_dir = true,  path_dest_center = true, strict = false; break;
         case 27 : update = true, nth_answer = 1, path_init_dir = false, path_dest_center = true, strict = false; break;
+        case 28 : update = false, nth_answer = 5; break;
         //default : update = true, nth_answer = 1, path_init_dir = true,  path_dest_center = false, strict = true; break;
     }
 }
 
 int answers[30];
-Path ans_path[50];
+Path ans_path[100];
 int ans_num;
 
 /// 各answerで最もよいものをanswersに格納. 全体でかかるターン数を返す
@@ -1117,35 +1157,47 @@ void Answer::initialize(const Stage& aStage)
     targets_init(aStage);
     if(nscrolls >= 3){
         int best_score = 100000;
-        // 26659 
+        // 26642 
         const int iteration = 50000;
+        // 26638
+        //const int iteration = 100000;
         // 26618
         //const int iteration = 500000;
         const int nloop = (nscrolls < 8) ? 10 : 30;
+        // 26613
+        //const int nloop = (nscrolls < 8) ? 10 : 60;
         //const int nloop = (nscrolls < 8) ? 1 : 1;
         /// nloop個回探索
         for(int i = 0; i < nloop; i++){
             targets_shuffle(aStage);
 
+            ///*
             /// SA法をなどを用いて探索
             tsp_sa_simple(aStage, iteration);
             tsp_2opt_simple(aStage);
 
-            //// 26642 -> 26638
-            //float dist = path_length_from_dijkstra(aStage);
-            //std::vector<int> _targets = targets;
-            //tsp_2opt(aStage);
-            //float new_dist = path_length_from_dijkstra(aStage);
-            //if(new_dist > dist)
-            //    targets = _targets;
+            //////// 26642 -> 26638
+            //////float dist = path_length_from_dijkstra(aStage);
+            //////std::vector<int> _targets = targets;
+            //////tsp_2opt(aStage);
+            //////float new_dist = path_length_from_dijkstra(aStage);
+            //////if(new_dist > dist)
+            //////    targets = _targets;
 
             /// NANSWER個の移動アルゴリズムから最も良いものを選択
-            search_best_answers(aStage, i);
-            int score = ans_path[i].size();
+            int score = search_best_answers(aStage, i);
             if(score < best_score){
                 best_score = score;
                 ans_num = i;
             }
+            //*/
+            /*
+            int score = tsp_sa_simple_ensemble(aStage, iteration, i);
+            if(score < best_score){
+                best_score = score;
+                ans_num = i;
+            }
+            */
         }
     }
     else{
