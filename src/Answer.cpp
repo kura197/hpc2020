@@ -121,18 +121,17 @@ int get_terrain_weight(const Stage& aStage, Vector2 pos){
     int weight = 0;
     auto terrain = aStage.terrain(pos);
     if(terrain == Terrain::Plain)
-        //weight = 3;
-        weight = 6;
+        weight = 3;
+        //weight = 6;
     else if(terrain == Terrain::Bush)
-        //weight = 5;
-        weight = 10;
-    else if(terrain == Terrain::Sand)
+        weight = 5;
         //weight = 10;
-        weight = 20;
+    else if(terrain == Terrain::Sand)
+        weight = 10;
+        //weight = 20;
     else if(terrain == Terrain::Pond)
-        //weight = 30;
+        weight = 30;
         //weight = 60;
-        weight = 60;
     return weight;
 }
 
@@ -304,7 +303,7 @@ int get_direction(Vector2 src, Vector2 dest){
 
 /// {y1, x1} から scrolls[dest] までの経路を復元.
 /// TODO : 何らかのパラメータでアンサンブル
-void get_path_from_dijkstra(const Stage& aStage, Path& path, int y1, int x1, int src, int dest, int dest2, bool insert_first, bool init_dir, bool set_dest_center, bool simple_path){
+void get_path_from_dijkstra(const Stage& aStage, Path& path, int y1, int x1, int src, int dest, int dest2, bool insert_first, bool init_dir, bool set_dest_center, bool simple_path, bool set_dest_close){
     assert(src == -1);
     //TODO : 最初の地点を保存？
     int d = dist_scroll[dest][y1][x1];
@@ -334,7 +333,6 @@ void get_path_from_dijkstra(const Stage& aStage, Path& path, int y1, int x1, int
 
             int weight = get_terrain_weight(aStage, Vector2{(float)nx, (float)ny});
 
-            //TODO : experiment
             weight += get_terrain_weight(aStage, Vector2{(float)x, (float)y});
 
             if(nd + weight == d){
@@ -348,9 +346,11 @@ void get_path_from_dijkstra(const Stage& aStage, Path& path, int y1, int x1, int
                         break;
                     }
                     else{
-                        tx = ((1+EPS)*(nx+0.5) + (x+0.5)) / (2. + EPS);
-                        ty = ((1+EPS)*(ny+0.5) + (y+0.5)) / (2. + EPS);
-                        path.push_back(Vector2{tx, ty});
+                        if(set_dest_close){
+                            tx = ((1+EPS)*(nx+0.5) + (x+0.5)) / (2. + EPS);
+                            ty = ((1+EPS)*(ny+0.5) + (y+0.5)) / (2. + EPS);
+                            path.push_back(Vector2{tx, ty});
+                        }
 
                         if(set_dest_center){
                             tx = (x + nx + 1) / 2.0;
@@ -999,79 +999,58 @@ Vector2 execute_answer(const Stage& aStage, int nth_answer, Path path, Vector2 c
     return Vector2{-1, -1};
 }
 
-#define NANSWER 58
-void set_ensemble_parameters(int n, int& nth_answer, bool& strict, int& postk, bool& path_init_dir, bool& path_dest_center, bool& update, bool& simple_path){
+//#define NANSWER 58
+//// 28 * 4 + 1
+#define NANSWER 113
+void set_ensemble_parameters(int n, int& nth_answer, bool& strict, int& postk, bool& path_init_dir, bool& path_dest_center, bool& update, bool& simple_path, bool& path_dest_close){
     assert(0 <= n && n < NANSWER);
-    switch(n){
-        case 0 :  update = true, nth_answer = 1, path_init_dir = true,  path_dest_center = false, strict = true; break;
-        case 1 :  update = true, nth_answer = 1, path_init_dir = false, path_dest_center = false, strict = true; break;
-        case 2 :  update = true, nth_answer = 4, postk = 3,  path_init_dir = false, path_dest_center = false; break;
-        case 3 :  update = false, nth_answer = 4, postk = 4,  path_init_dir = false, path_dest_center = false; break;
-        case 4 :  update = false, nth_answer = 4, postk = 5,  path_init_dir = false, path_dest_center = false; break;
-        case 5 :  update = false, nth_answer = 4, postk = 8,  path_init_dir = false, path_dest_center = false; break;
-        case 6 :  update = false, nth_answer = 4, postk = 12, path_init_dir = false, path_dest_center = false; break;
-        case 7 :  update = true, nth_answer = 4, postk = 3,  path_init_dir = true,  path_dest_center = false; break;
-        case 8 :  update = false, nth_answer = 4, postk = 4,  path_init_dir = true,  path_dest_center = false; break;
-        case 9 :  update = false, nth_answer = 4, postk = 5,  path_init_dir = true,  path_dest_center = false; break;
-        case 10 : update = false, nth_answer = 4, postk = 8,  path_init_dir = true,  path_dest_center = false; break;
-        case 11 : update = false, nth_answer = 4, postk = 12, path_init_dir = true,  path_dest_center = false; break;
-        case 12 : update = true, nth_answer = 1, path_init_dir = true,  path_dest_center = false, strict = false; break;
-        case 13 : update = true, nth_answer = 1, path_init_dir = false, path_dest_center = false, strict = false; break;
-        // いらないかも
-        case 14 : update = false, nth_answer = 5; break;
+    if(n == NANSWER - 1)
+        update = false, nth_answer = 5;
+    else{
+        switch(n % 28){
+            case 0 :  update = true, nth_answer = 1, path_init_dir = true,  path_dest_center = false, strict = true; break;
+            case 1 :  update = true, nth_answer = 1, path_init_dir = false, path_dest_center = false, strict = true; break;
+            case 2 :  update = true, nth_answer = 4, postk = 3,  path_init_dir = false, path_dest_center = false; break;
+            case 3 :  update = false, nth_answer = 4, postk = 4,  path_init_dir = false, path_dest_center = false; break;
+            case 4 :  update = false, nth_answer = 4, postk = 5,  path_init_dir = false, path_dest_center = false; break;
+            case 5 :  update = false, nth_answer = 4, postk = 8,  path_init_dir = false, path_dest_center = false; break;
+            case 6 :  update = false, nth_answer = 4, postk = 12, path_init_dir = false, path_dest_center = false; break;
+            case 7 :  update = true, nth_answer = 4, postk = 3,  path_init_dir = true,  path_dest_center = false; break;
+            case 8 :  update = false, nth_answer = 4, postk = 4,  path_init_dir = true,  path_dest_center = false; break;
+            case 9 :  update = false, nth_answer = 4, postk = 5,  path_init_dir = true,  path_dest_center = false; break;
+            case 10 : update = false, nth_answer = 4, postk = 8,  path_init_dir = true,  path_dest_center = false; break;
+            case 11 : update = false, nth_answer = 4, postk = 12, path_init_dir = true,  path_dest_center = false; break;
+            case 12 : update = true, nth_answer = 1, path_init_dir = true,  path_dest_center = false, strict = false; break;
+            case 13 : update = true, nth_answer = 1, path_init_dir = false, path_dest_center = false, strict = false; break;
 
-        case 15 : update = true, nth_answer = 1, path_init_dir = true,  path_dest_center = true, strict = true; break;
-        case 16 : update = true, nth_answer = 1, path_init_dir = false, path_dest_center = true, strict = true; break;
-        case 17 : update = true, nth_answer = 4, postk = 3,  path_init_dir = false, path_dest_center = true; break;
-        case 18 : update = false, nth_answer = 4, postk = 4,  path_init_dir = false, path_dest_center = true; break;
-        case 19 : update = false, nth_answer = 4, postk = 5,  path_init_dir = false, path_dest_center = true; break;
-        case 20 : update = false, nth_answer = 4, postk = 8,  path_init_dir = false, path_dest_center = true; break;
-        case 21 : update = false, nth_answer = 4, postk = 12, path_init_dir = false, path_dest_center = true; break;
-        case 22 : update = true, nth_answer = 4, postk = 3,  path_init_dir = true,  path_dest_center = true; break;
-        case 23 : update = false, nth_answer = 4, postk = 4,  path_init_dir = true,  path_dest_center = true; break;
-        case 24 : update = false, nth_answer = 4, postk = 5,  path_init_dir = true,  path_dest_center = true; break;
-        case 25 : update = false, nth_answer = 4, postk = 8,  path_init_dir = true,  path_dest_center = true; break;
-        case 26 : update = false, nth_answer = 4, postk = 12, path_init_dir = true,  path_dest_center = true; break;
-        case 27 : update = true, nth_answer = 1, path_init_dir = true,  path_dest_center = true, strict = false; break;
-        case 28 : update = true, nth_answer = 1, path_init_dir = false, path_dest_center = true, strict = false; break;
-        case 29 : update = false, nth_answer = 5; break;
+            case 14 : update = true, nth_answer = 1, path_init_dir = true,  path_dest_center = true, strict = true; break;
+            case 15 : update = true, nth_answer = 1, path_init_dir = false, path_dest_center = true, strict = true; break;
+            case 16 : update = true, nth_answer = 4, postk = 3,  path_init_dir = false, path_dest_center = true; break;
+            case 17 : update = false, nth_answer = 4, postk = 4,  path_init_dir = false, path_dest_center = true; break;
+            case 18 : update = false, nth_answer = 4, postk = 5,  path_init_dir = false, path_dest_center = true; break;
+            case 19 : update = false, nth_answer = 4, postk = 8,  path_init_dir = false, path_dest_center = true; break;
+            case 20 : update = false, nth_answer = 4, postk = 12, path_init_dir = false, path_dest_center = true; break;
+            case 21 : update = true, nth_answer = 4, postk = 3,  path_init_dir = true,  path_dest_center = true; break;
+            case 22 : update = false, nth_answer = 4, postk = 4,  path_init_dir = true,  path_dest_center = true; break;
+            case 23 : update = false, nth_answer = 4, postk = 5,  path_init_dir = true,  path_dest_center = true; break;
+            case 24 : update = false, nth_answer = 4, postk = 8,  path_init_dir = true,  path_dest_center = true; break;
+            case 25 : update = false, nth_answer = 4, postk = 12, path_init_dir = true,  path_dest_center = true; break;
+            case 26 : update = true, nth_answer = 1, path_init_dir = true,  path_dest_center = true, strict = false; break;
+            case 27 : update = true, nth_answer = 1, path_init_dir = false, path_dest_center = true, strict = false; break;
+            default : printf("n = %d\n", n); assert(false); break;
+        }
 
-        case 30 :  update = true, nth_answer = 1, path_init_dir = true,  path_dest_center = false, strict = true; break;
-        case 31 :  update = true, nth_answer = 1, path_init_dir = false, path_dest_center = false, strict = true; break;
-        case 32 :  update = true, nth_answer = 4, postk = 3,  path_init_dir = false, path_dest_center = false; break;
-        case 33 :  update = false, nth_answer = 4, postk = 4,  path_init_dir = false, path_dest_center = false; break;
-        case 34 :  update = false, nth_answer = 4, postk = 5,  path_init_dir = false, path_dest_center = false; break;
-        case 35 :  update = false, nth_answer = 4, postk = 8,  path_init_dir = false, path_dest_center = false; break;
-        case 36 :  update = false, nth_answer = 4, postk = 12, path_init_dir = false, path_dest_center = false; break;
-        case 37 :  update = true, nth_answer = 4, postk = 3,  path_init_dir = true,  path_dest_center = false; break;
-        case 38 :  update = false, nth_answer = 4, postk = 4,  path_init_dir = true,  path_dest_center = false; break;
-        case 39 :  update = false, nth_answer = 4, postk = 5,  path_init_dir = true,  path_dest_center = false; break;
-        case 40 : update = false, nth_answer = 4, postk = 8,  path_init_dir = true,  path_dest_center = false; break;
-        case 41 : update = false, nth_answer = 4, postk = 12, path_init_dir = true,  path_dest_center = false; break;
-        case 42 : update = true, nth_answer = 1, path_init_dir = true,  path_dest_center = false, strict = false; break;
-        case 43 : update = true, nth_answer = 1, path_init_dir = false, path_dest_center = false, strict = false; break;
+        if((0 <= n && n < 30) || (58 <= n && n < 86))
+            simple_path = true;
+        else
+            simple_path = false;
 
-        case 44 : update = true, nth_answer = 1, path_init_dir = true,  path_dest_center = true, strict = true; break;
-        case 45 : update = true, nth_answer = 1, path_init_dir = false, path_dest_center = true, strict = true; break;
-        case 46 : update = true, nth_answer = 4, postk = 3,  path_init_dir = false, path_dest_center = true; break;
-        case 47 : update = false, nth_answer = 4, postk = 4,  path_init_dir = false, path_dest_center = true; break;
-        case 48 : update = false, nth_answer = 4, postk = 5,  path_init_dir = false, path_dest_center = true; break;
-        case 49 : update = false, nth_answer = 4, postk = 8,  path_init_dir = false, path_dest_center = true; break;
-        case 50 : update = false, nth_answer = 4, postk = 12, path_init_dir = false, path_dest_center = true; break;
-        case 51 : update = true, nth_answer = 4, postk = 3,  path_init_dir = true,  path_dest_center = true; break;
-        case 52 : update = false, nth_answer = 4, postk = 4,  path_init_dir = true,  path_dest_center = true; break;
-        case 53 : update = false, nth_answer = 4, postk = 5,  path_init_dir = true,  path_dest_center = true; break;
-        case 54 : update = false, nth_answer = 4, postk = 8,  path_init_dir = true,  path_dest_center = true; break;
-        case 55 : update = false, nth_answer = 4, postk = 12, path_init_dir = true,  path_dest_center = true; break;
-        case 56 : update = true, nth_answer = 1, path_init_dir = true,  path_dest_center = true, strict = false; break;
-        case 57 : update = true, nth_answer = 1, path_init_dir = false, path_dest_center = true, strict = false; break;
-        default : printf("n = %d\n", n); assert(false); break;
+        if(0 <= n && n < 58)
+            path_dest_close = true;
+        else
+            path_dest_close = false;
+
     }
-
-    if(0 <= n && n < 30)
-        simple_path = true;
-    else
-        simple_path = false;
 }
 
 //int answers[30];
@@ -1112,13 +1091,14 @@ int search_best_answers(const Stage& aStage, int nth_loop, bool record){
             bool path_dest_center = false;
             bool update = false;
             bool simple_path = true;
+            bool path_dest_close = false;
 
-            set_ensemble_parameters(n, nth_answer, strict, postk, path_init_dir, path_dest_center, update, simple_path);
+            set_ensemble_parameters(n, nth_answer, strict, postk, path_init_dir, path_dest_center, update, simple_path, path_dest_close);
 
             ////TODO : skip if using same path
             if(update){
                 path.clear();
-                get_path_from_dijkstra(aStage, path, tmp_pos.y, tmp_pos.x, -1, dest, nex_dest, nth_answer == 4, path_init_dir, path_dest_center, simple_path);
+                get_path_from_dijkstra(aStage, path, tmp_pos.y, tmp_pos.x, -1, dest, nex_dest, nth_answer == 4, path_init_dir, path_dest_center, simple_path, path_dest_close);
             }
 
             int current_turn = 0;
@@ -1209,16 +1189,20 @@ void Answer::initialize(const Stage& aStage)
         // 26592
         //const int iteration = 25000;
         // 26564
-        const int iteration = 12000;
+        //const int iteration = 12000;
+        //const int iteration = 12000;
+        const int iteration = (nscrolls < 10) ? 4000 : 13000;
+        //const int iteration = 10000;
         // 26578
         //const int iteration = 5000;
         // 26638
         //const int iteration = 100000;
         // 26618
         //const int iteration = 500000;
+        //const int nloop = (nscrolls < 8) ? 1 : 50;
         //const int nloop = (nscrolls < 8) ? 10 : 30;
-        const int nloop = (nscrolls < 8) ? 50 : 90;
-        //const int nloop = (nscrolls < 8) ? 60 : 100;
+        const int nloop = (nscrolls < 10) ? 20 : 60;
+        //const int nloop = (nscrolls < 8) ? 20 : 50;
         // 26613
         //const int nloop = (nscrolls < 8) ? 10 : 60;
         //const int nloop = (nscrolls < 8) ? 1 : 1;
@@ -1232,20 +1216,18 @@ void Answer::initialize(const Stage& aStage)
             tsp_sa_simple(aStage, iteration);
             tsp_2opt_simple(aStage);
 
-            //////// 26642 -> 26638
-            //////float dist = path_length_from_dijkstra(aStage);
-            //////std::vector<int> _targets = targets;
-            //////tsp_2opt(aStage);
-            //////float new_dist = path_length_from_dijkstra(aStage);
-            //////if(new_dist > dist)
-            //////    targets = _targets;
-
             //// NANSWER個の移動アルゴリズムから最も良いものを選択
             int score = search_best_answers(aStage, i, true);
             if(score < best_score){
                 best_score = score;
                 ans_num = i;
             }
+            //printf("%d : %d, %d", i, score, best_score);
+            //printf(" [");
+            //for(auto&& x : targets){
+            //    printf("%d ", x);
+            //}
+            //printf("]\n");
             //*/
             /*
             int score = tsp_sa_simple_ensemble(aStage, 30, i);
